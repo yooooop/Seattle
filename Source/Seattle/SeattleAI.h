@@ -15,13 +15,23 @@ public:
 	// Sets default values for this character's properties
 	ASeattleAI();
 
-protected:
+public:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Health")
 	float Health = 100.0f;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Health")
+	bool bIsKnockedDown = false;
+
+	UPROPERTY(BlueprintReadWrite)
+	bool bIsStunned = false;
+
+	UPROPERTY(BlueprintReadWrite)
+	int32 ComboCount = 0;
+	UPROPERTY(BlueprintReadWrite)
+	float LastAttackTime = 0.f;
 public:	
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
@@ -31,5 +41,11 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Health")
 	virtual void ApplyHealthChange(float Change);
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ApplyStun();
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void ApplyKnockDown();
 
 };
