@@ -7,13 +7,19 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/PlayerController.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
+#include "Animation/AnimMontage.h"
+#include "Net/UnrealNetwork.h"
 #include "Seattle.h"
+#include "SeattlePlayerController.h"
 
 ASeattleCharacter::ASeattleCharacter()
 {
+	bReplicates = true;
+
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
@@ -87,8 +93,7 @@ void ASeattleCharacter::Move(const FInputActionValue& Value)
 
 void ASeattleCharacter::MoveStopped()
 {
-	ForwardInput = 0.f;
-	RightInput = 0.f;
+	ApplySharedMovementInput(FVector2D::ZeroVector, ESeattleInputContributor::Primary);
 }
 
 void ASeattleCharacter::Look(const FInputActionValue& Value)
@@ -102,37 +107,146 @@ void ASeattleCharacter::Look(const FInputActionValue& Value)
 
 void ASeattleCharacter::StartLeftAttack()
 {
-	bIsAttacking = true;
+	NotifyAttackInput(ESeattleAttackType::SingleTap);
+}
+
+void ASeattleCharacter::SetSharedPawnEnabled(bool bEnabled)
+{
+	if (HasAuthority())
+	{
+		bSharedPawnEnabled = bEnabled;
+	}
+
+	if (FollowCamera)
+	{
+		FollowCamera->SetActive(!bEnabled);
+	}
+}
+
+void ASeattleCharacter::OnRep_bSharedPawnEnabled()
+{
+	if (FollowCamera)
+	{
+		FollowCamera->SetActive(!bSharedPawnEnabled);
+	}
+}
+
+void ASeattleCharacter::RegisterPrimaryController(APlayerController* InController)
+{
+	if (HasAuthority())
+	{
+		RegisteredPrimaryController = InController;
+	}
+}
+
+void ASeattleCharacter::RegisterSecondaryController(APlayerController* InController)
+{
+	if (HasAuthority())
+	{
+		RegisteredSecondaryController = InController;
+	}
+}
+
+void ASeattleCharacter::ApplySharedMovementInput(FVector2D MovementInput, ESeattleInputContributor Contributor)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (Contributor == ESeattleInputContributor::Primary)
+	{
+		PrimaryMoveInput = MovementInput;
+	}
+	else
+	{
+		SecondaryMoveInput = MovementInput;
+	}
+
+	RefreshMergedMovement();
+}
+
+void ASeattleCharacter::ApplySharedLookInput(FVector2D LookInput, ESeattleInputContributor Contributor)
+{
+	if (Contributor == ESeattleInputContributor::Primary)
+	{
+		PrimaryLookInput = LookInput;
+	}
+	else
+	{
+		SecondaryLookInput = LookInput;
+	}
+}
+
+void ASeattleCharacter::ApplyMovementForContributor(FVector2D MovementInput, APlayerController* ViewController)
+{
+	if (!ViewController || MovementInput.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FRotator YawRotation(0.f, ViewController->GetControlRotation().Yaw, 0.f);
+	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+	AddMovementInput(ForwardDirection, MovementInput.Y);
+	AddMovementInput(RightDirection, MovementInput.X);
+}
+
+void ASeattleCharacter::RefreshMergedMovement()
+{
+	const float CombinedForward = FMath::Clamp(PrimaryMoveInput.Y + SecondaryMoveInput.Y, -1.f, 1.f);
+	const float CombinedRight = FMath::Clamp(PrimaryMoveInput.X + SecondaryMoveInput.X, -1.f, 1.f);
+
+	ForwardInput = CombinedForward;
+	RightInput = CombinedRight;
+
+	if (bSharedPawnEnabled)
+	{
+		ApplyMovementForContributor(PrimaryMoveInput, RegisteredPrimaryController);
+		ApplyMovementForContributor(SecondaryMoveInput, RegisteredSecondaryController);
+		return;
+	}
+
+	if (GetController() != nullptr)
+	{
+		const FRotator Rotation = GetController()->GetControlRotation();
+		const FRotator YawRotation(0, Rotation.Yaw, 0);
+
+		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+		AddMovementInput(ForwardDirection, CombinedForward);
+		AddMovementInput(RightDirection, CombinedRight);
+	}
+}
+
+bool ASeattleCharacter::CanAcceptSecondaryController(const APlayerController* InController) const
+{
+	return InController != nullptr
+		&& (!RegisteredSecondaryController || RegisteredSecondaryController == InController);
 }
 
 void ASeattleCharacter::DoMove(float Right, float Forward)
 {
-	ForwardInput = Forward;
-	RightInput = Right;
-
-	if (GetController() != nullptr)
-	{
-		// find out which way is forward
-		const FRotator Rotation = GetController()->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
-
-		// get forward vector
-		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-
-		// get right vector 
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-
-		// add movement 
-		AddMovementInput(ForwardDirection, Forward);
-		AddMovementInput(RightDirection, Right);
-	}
+	ApplySharedMovementInput(FVector2D(Right, Forward), ESeattleInputContributor::Primary);
 }
 
 void ASeattleCharacter::DoLook(float Yaw, float Pitch)
 {
+	ApplySharedLookInput(FVector2D(Yaw, Pitch), ESeattleInputContributor::Primary);
+
+	if (bSharedPawnEnabled)
+	{
+		if (ASeattlePlayerController* SeattlePC = Cast<ASeattlePlayerController>(GetController()))
+		{
+			SeattlePC->ApplyLocalSharedLookInput(FVector2D(Yaw, Pitch));
+		}
+		return;
+	}
+
 	if (GetController() != nullptr)
 	{
-		// add yaw and pitch input to controller
 		AddControllerYawInput(Yaw);
 		AddControllerPitchInput(Pitch);
 	}
@@ -148,4 +262,90 @@ void ASeattleCharacter::DoJumpEnd()
 {
 	// signal the character to stop jumping
 	StopJumping();
+}
+
+void ASeattleCharacter::SetActiveAttackType(ESeattleAttackType NewAttackType)
+{
+	if (HasAuthority())
+	{
+		ActiveAttackType = NewAttackType;
+		bIsAttacking = NewAttackType != ESeattleAttackType::None;
+	}
+}
+
+void ASeattleCharacter::NotifyAttackInput(ESeattleAttackType AttackType)
+{
+	if (HasAuthority())
+	{
+		SetActiveAttackType(AttackType);
+	}
+	else
+	{
+		Server_NotifyAttackInput(AttackType);
+	}
+}
+
+bool ASeattleCharacter::Server_NotifyAttackInput_Validate(ESeattleAttackType AttackType)
+{
+	return AttackType != ESeattleAttackType::None;
+}
+
+void ASeattleCharacter::Server_NotifyAttackInput_Implementation(ESeattleAttackType AttackType)
+{
+	SetActiveAttackType(AttackType);
+}
+
+void ASeattleCharacter::RequestPlayAttackMontage(UAnimMontage* Montage, float PlayRate)
+{
+	if (!Montage)
+	{
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		PlayAnimMontage(Montage, PlayRate);
+	}
+	else
+	{
+		Server_PlayAttackMontage(Montage, PlayRate);
+	}
+}
+
+bool ASeattleCharacter::Server_PlayAttackMontage_Validate(UAnimMontage* Montage, float PlayRate)
+{
+	return Montage != nullptr && PlayRate > 0.f;
+}
+
+void ASeattleCharacter::Server_PlayAttackMontage_Implementation(UAnimMontage* Montage, float PlayRate)
+{
+	if (Montage)
+	{
+		PlayAnimMontage(Montage, PlayRate);
+	}
+}
+
+void ASeattleCharacter::OnRep_bIsAttacking()
+{
+	// Hook for Blueprint anim/UI reactions when attack state replicates.
+}
+
+void ASeattleCharacter::OnRep_ActiveAttackType()
+{
+	bIsAttacking = ActiveAttackType != ESeattleAttackType::None;
+}
+
+void ASeattleCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ASeattleCharacter, bSharedPawnEnabled);
+	DOREPLIFETIME(ASeattleCharacter, RegisteredPrimaryController);
+	DOREPLIFETIME(ASeattleCharacter, RegisteredSecondaryController);
+	DOREPLIFETIME(ASeattleCharacter, PrimaryMoveInput);
+	DOREPLIFETIME(ASeattleCharacter, SecondaryMoveInput);
+	DOREPLIFETIME(ASeattleCharacter, ForwardInput);
+	DOREPLIFETIME(ASeattleCharacter, RightInput);
+	DOREPLIFETIME(ASeattleCharacter, bIsAttacking);
+	DOREPLIFETIME(ASeattleCharacter, ActiveAttackType);
 }
