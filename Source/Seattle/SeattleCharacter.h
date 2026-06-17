@@ -67,8 +67,24 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
-	UPROPERTY(EditAnywhere, Category = "Input")
+	/** Optional attack actions when character is locally possessed by a client-owned pawn */
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
 	UInputAction* LeftAttackAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
+	UInputAction* LeftHookAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
+	UInputAction* LeftKickAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
+	UInputAction* RightAttackAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
+	UInputAction* RightHookAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
+	UInputAction* RightKickAction;
 
 public:
 
@@ -90,7 +106,13 @@ protected:
 	/** Called for looking input */
 	void Look(const FInputActionValue& Value);
 
+	/** Character-side handlers (used when pawn is locally possessed on client) */
 	void StartLeftAttack();
+	void StartLeftHook();
+	void StartLeftKick();
+	void StartRightAttack();
+	void StartRightHook();
+	void StartRightKick();
 
 	/** Latest move input from the primary (host) controller. */
 	UPROPERTY(Replicated, BlueprintReadWrite, EditAnywhere, Category = "Shared Control|Input")
@@ -134,6 +156,10 @@ protected:
 
 public:
 
+	/** Multicast RPC to play montage on server + all clients */
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayAttackMontage(UAnimMontage* Montage, float PlayRate);
+
 	UPROPERTY(Replicated, BlueprintReadWrite, EditAnywhere, Category = "Animation")
 	float ForwardInput = 0.f;
 
@@ -145,6 +171,44 @@ public:
 
 	UPROPERTY(ReplicatedUsing = OnRep_ActiveAttackType, BlueprintReadOnly, EditAnywhere, Category = "Animation")
 	ESeattleAttackType ActiveAttackType = ESeattleAttackType::None;
+
+	/** Montages to play for attacks (assign these in Blueprint) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* LeftAttackMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* LeftHookMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* LeftKickMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* RightJabMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* RightHookMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* RightKickMontage = nullptr;
+
+	/** Playback rates for each montage */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float LeftAttackPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float LeftHookPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float LeftKickPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float RightJabPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float RightHookPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float RightKickPlayRate = 1.f;
 
 	/** Enables shared-pawn mode on the authoritative instance. */
 	UFUNCTION(BlueprintCallable, Category = "Shared Control")

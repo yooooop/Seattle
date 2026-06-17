@@ -11,6 +11,7 @@ class UInputMappingContext;
 class UUserWidget;
 class ASeattleCharacter;
 class UCameraComponent;
+class UInputAction;
 
 UENUM(BlueprintType)
 enum class ESeattleSharedControlRole : uint8
@@ -113,6 +114,82 @@ protected:
 
 	UFUNCTION(Server, Unreliable, WithValidation)
 	void Server_SendSharedMovementInput(FVector2D MovementInput);
+
+	/** The InputAction assets for attack inputs - set these in the PlayerController BP to match the mapping context */
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* LeftAttackAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* LeftHookAction; // optional separate action for double-tap/hook
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* LeftKickAction; // optional hold action
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* RightAttackAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* RightHookAction;
+
+	UPROPERTY(EditAnywhere, Category = "Input")
+	UInputAction* RightKickAction;
+
+	/** Local handlers bound on the controller for local input (client only) */
+	UFUNCTION()
+	void LocalLeftAttackPressed();
+
+	UFUNCTION()
+	void LocalLeftHookPressed();
+
+	UFUNCTION()
+	void LocalLeftKickPressed();
+
+	UFUNCTION()
+	void LocalRightAttackPressed();
+
+	UFUNCTION()
+	void LocalRightHookPressed();
+
+	UFUNCTION()
+	void LocalRightKickPressed();
+
+	/** Server RPCs the client calls to request actions on the shared pawn */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestLeftAttack();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestLeftHook();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestLeftKick();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestRightAttack();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestRightHook();
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestRightKick();
+
+	/* Double-tap handling (implemented on controller so double-click works reliably on clients):
+	 - Controller will detect double-tap and call Server_RequestLeftHook instead of Server_RequestLeftAttack.
+	 - Single-tap is delayed by DoubleTapThreshold to allow detection of a second tap.
+	*/
+	UPROPERTY(EditAnywhere, Category = "Input|Attack")
+	float DoubleTapThreshold = 0.25f;
+
+	FTimerHandle LeftTapTimer;
+	FTimerHandle RightTapTimer;
+
+	float LastLeftTapTime = 0.f;
+	float LastRightTapTime = 0.f;
+
+	/** Called when Left single-tap timer expires (perform single attack) */
+	void LeftTapTimerExpired();
+
+	/** Called when Right single-tap timer expires */
+	void RightTapTimerExpired();
 
 public:
 

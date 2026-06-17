@@ -4,6 +4,9 @@
 #include "SeattleAI.h"
 #include "Net/UnrealNetwork.h"
 #include "Seattle.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimInstance.h"
+#include "GameFramework/Actor.h"
 
 ASeattleAI::ASeattleAI()
 {
@@ -125,4 +128,91 @@ void ASeattleAI::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifeti
 	DOREPLIFETIME(ASeattleAI, bIsStunned);
 	DOREPLIFETIME(ASeattleAI, ComboCount);
 	DOREPLIFETIME(ASeattleAI, LastAttackTime);
+
+	// Animation state replication
+	DOREPLIFETIME(ASeattleAI, bIsAttacking);
+	DOREPLIFETIME(ASeattleAI, ActiveAttackType);
+}
+
+void ASeattleAI::SetActiveAttackType(ESeattleAttackType NewAttackType)
+{
+	if (HasAuthority())
+	{
+		ActiveAttackType = NewAttackType;
+		bIsAttacking = NewAttackType != ESeattleAttackType::None;
+		UE_LOG(LogSeattle, Log, TEXT("%s SetActiveAttackType: ActiveAttackType=%d bIsAttacking=%d"), *GetName(), (int32)ActiveAttackType, bIsAttacking ? 1 : 0);
+	}
+}
+
+bool ASeattleAI::Server_PlayAttackMontage_Validate(UAnimMontage* Montage, float PlayRate)
+{
+	return Montage != nullptr && PlayRate > 0.f;
+}
+
+void ASeattleAI::Server_PlayAttackMontage_Implementation(UAnimMontage* Montage, float PlayRate)
+{
+	UE_LOG(LogSeattle, Log, TEXT("%s Server_PlayAttackMontage_Implementation: server received request Montage=%s PlayRate=%f"), *GetName(), Montage ? *Montage->GetName() : TEXT("null"), PlayRate);
+	if (Montage)
+	{
+		Multicast_PlayAttackMontage(Montage, PlayRate);
+	}
+}
+
+void ASeattleAI::Multicast_PlayAttackMontage_Implementation(UAnimMontage* Montage, float PlayRate)
+{
+	UE_LOG(LogSeattle, Log, TEXT("%s Multicast_PlayAttackMontage_Implementation: Called locally. Montage=%s PlayRate=%f"), *GetName(), Montage ? *Montage->GetName() : TEXT("null"), PlayRate);
+
+	if (!Montage)
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("%s Multicast_PlayAttackMontage_Implementation: Montage null, aborting"), *GetName());
+		return;
+	}
+
+	USkeletalMeshComponent* Skel = GetMesh();
+	if (!Skel)
+	{
+		UE_LOG(LogSeattle, Error, TEXT("%s Multicast_PlayAttackMontage_Implementation: GetMesh() returned null"), *GetName());
+		return;
+	}
+
+	UAnimInstance* AnimInst = Skel->GetAnimInstance();
+	if (!AnimInst)
+	{
+		UE_LOG(LogSeattle, Error, TEXT("%s Multicast_PlayAttackMontage_Implementation: GetAnimInstance() returned null"), *GetName());
+		return;
+	}
+
+	const float PlayResult = AnimInst->Montage_Play(Montage, PlayRate);
+	UE_LOG(LogSeattle, Log, TEXT("%s Multicast_PlayAttackMontage_Implementation: Montage_Play called, return %f"), *GetName(), PlayResult);
+}
+
+void ASeattleAI::RequestPlayAttackMontage(UAnimMontage* Montage, float PlayRate)
+{
+	if (!Montage)
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("%s RequestPlayAttackMontage: Montage is null"), *GetName());
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("%s RequestPlayAttackMontage: HasAuthority -> calling Multicast. Montage=%s PlayRate=%f"), *GetName(), *Montage->GetName(), PlayRate);
+		Multicast_PlayAttackMontage(Montage, PlayRate);
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Log, TEXT("%s RequestPlayAttackMontage: Not authority -> calling Server_PlayAttackMontage RPC. Montage=%s PlayRate=%f"), *GetName(), *Montage->GetName(), PlayRate);
+		Server_PlayAttackMontage(Montage, PlayRate);
+	}
+}
+
+void ASeattleAI::OnRep_bIsAttacking()
+{
+	UE_LOG(LogSeattle, Log, TEXT("%s OnRep_bIsAttacking: bIsAttacking=%d"), *GetName(), bIsAttacking ? 1 : 0);
+}
+
+void ASeattleAI::OnRep_ActiveAttackType()
+{
+	UE_LOG(LogSeattle, Log, TEXT("%s OnRep_ActiveAttackType: ActiveAttackType=%d"), *GetName(), (int32)ActiveAttackType);
+	bIsAttacking = ActiveAttackType != ESeattleAttackType::None;
 }

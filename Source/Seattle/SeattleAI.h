@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "SeattleCharacter.h"
+#include "Animation/AnimMontage.h"
 #include "SeattleAI.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSeattleAIHealthChangedSignature, float, NewHealth, float, HealthDelta);
@@ -39,6 +41,50 @@ public:
 	UPROPERTY(Replicated, BlueprintReadWrite, EditAnywhere)
 	float LastAttackTime = 0.f;
 
+	/** Animation / combat replication */
+	UPROPERTY(ReplicatedUsing = OnRep_bIsAttacking, BlueprintReadWrite, EditAnywhere, Category = "Animation")
+	bool bIsAttacking = false;
+
+	UPROPERTY(ReplicatedUsing = OnRep_ActiveAttackType, BlueprintReadOnly, EditAnywhere, Category = "Animation")
+	ESeattleAttackType ActiveAttackType = ESeattleAttackType::None;
+
+	/** Montages for AI attacks (assign in BP) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* LeftAttackMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* LeftHookMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* LeftKickMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* RightJabMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* RightHookMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	UAnimMontage* RightKickMontage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float LeftAttackPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float LeftHookPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float LeftKickPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float RightJabPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float RightHookPlayRate = 1.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+	float RightKickPlayRate = 1.f;
+
 	UPROPERTY(BlueprintAssignable, Category = "Health")
 	FSeattleAIHealthChangedSignature OnHealthChanged;
 
@@ -71,6 +117,26 @@ public:
 
 	UFUNCTION()
 	void OnRep_bIsStunned();
+
+	/** Set the replicated attack type for AnimBP/state machines */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
+	void SetActiveAttackType(ESeattleAttackType NewAttackType);
+
+	/** Play montage request - will handle authority and multicast like the character version */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
+	void RequestPlayAttackMontage(UAnimMontage* Montage, float PlayRate = 1.f);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_PlayAttackMontage(UAnimMontage* Montage, float PlayRate);
+
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayAttackMontage(UAnimMontage* Montage, float PlayRate);
+
+	UFUNCTION()
+	void OnRep_bIsAttacking();
+
+	UFUNCTION()
+	void OnRep_ActiveAttackType();
 
 protected:
 

@@ -1,10 +1,11 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-
 #include "SeattlePlayerController.h"
 #include "EnhancedInputSubsystems.h"
+#include "EnhancedInputComponent.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
+#include "InputAction.h"
 #include "Blueprint/UserWidget.h"
 #include "Seattle.h"
 #include "SeattleCharacter.h"
@@ -14,6 +15,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Net/UnrealNetwork.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "TimerManager.h"
 
 ASeattlePlayerController::ASeattlePlayerController()
 {
@@ -41,7 +43,7 @@ void ASeattlePlayerController::BeginPlay()
 
 		} else {
 
-			UE_LOG(LogSeattle, Error, TEXT("Could not spawn mobile controls widget."));
+			UE_LOG(LogSeattle, Error, TEXT("[%s] BeginPlay: Could not spawn mobile controls widget."), *GetNameSafe(this));
 
 		}
 
@@ -106,7 +108,11 @@ void ASeattlePlayerController::SetupInputComponent()
 		{
 			for (UInputMappingContext* CurrentContext : DefaultMappingContexts)
 			{
-				Subsystem->AddMappingContext(CurrentContext, 0);
+				if (CurrentContext)
+				{
+					Subsystem->AddMappingContext(CurrentContext, 0);
+					UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Added InputMappingContext %s"), *GetNameSafe(this), *GetNameSafe(CurrentContext));
+				}
 			}
 
 			// only add these IMCs if we're not using mobile touch input
@@ -114,8 +120,53 @@ void ASeattlePlayerController::SetupInputComponent()
 			{
 				for (UInputMappingContext* CurrentContext : MobileExcludedMappingContexts)
 				{
-					Subsystem->AddMappingContext(CurrentContext, 0);
+					if (CurrentContext)
+					{
+						Subsystem->AddMappingContext(CurrentContext, 0);
+					}
 				}
+			}
+		}
+
+		// Bind left/right attack actions on controller so the owning client can send a server request even if they don't possess the pawn.
+		if (UEnhancedInputComponent* EIC = Cast<UEnhancedInputComponent>(InputComponent))
+		{
+			// left attack (tap/double detection handled here)
+			if (LeftAttackAction)
+			{
+				EIC->BindAction(LeftAttackAction, ETriggerEvent::Started, this, &ASeattlePlayerController::LocalLeftAttackPressed);
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Bound LeftAttackAction on controller (LeftAttackAction=%s)"), *GetNameSafe(this), *GetNameSafe(LeftAttackAction));
+			}
+			else
+			{
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: LeftAttackAction is null on controller"), *GetNameSafe(this));
+			}
+
+			// optional separate bindings (if you prefer separate action assets for hook/hold)
+			if (LeftHookAction)
+			{
+				EIC->BindAction(LeftHookAction, ETriggerEvent::Started, this, &ASeattlePlayerController::LocalLeftHookPressed);
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Bound LeftHookAction on controller (LeftHookAction=%s)"), *GetNameSafe(this), *GetNameSafe(LeftHookAction));
+			}
+			if (LeftKickAction)
+			{
+				EIC->BindAction(LeftKickAction, ETriggerEvent::Started, this, &ASeattlePlayerController::LocalLeftKickPressed);
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Bound LeftKickAction on controller (LeftKickAction=%s)"), *GetNameSafe(this), *GetNameSafe(LeftKickAction));
+			}
+			if (RightAttackAction)
+			{
+				EIC->BindAction(RightAttackAction, ETriggerEvent::Started, this, &ASeattlePlayerController::LocalRightAttackPressed);
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Bound RightAttackAction on controller (RightAttackAction=%s)"), *GetNameSafe(this), *GetNameSafe(RightAttackAction));
+			}
+			if (RightHookAction)
+			{
+				EIC->BindAction(RightHookAction, ETriggerEvent::Started, this, &ASeattlePlayerController::LocalRightHookPressed);
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Bound RightHookAction on controller (RightHookAction=%s)"), *GetNameSafe(this), *GetNameSafe(RightHookAction));
+			}
+			if (RightKickAction)
+			{
+				EIC->BindAction(RightKickAction, ETriggerEvent::Started, this, &ASeattlePlayerController::LocalRightKickPressed);
+				UE_LOG(LogSeattle, Log, TEXT("[%s] SetupInputComponent: Bound RightKickAction on controller (RightKickAction=%s)"), *GetNameSafe(this), *GetNameSafe(RightKickAction));
 			}
 		}
 	}
@@ -330,6 +381,289 @@ void ASeattlePlayerController::Server_SendSharedMovementInput_Implementation(FVe
 	if (SharedCharacterPawn && IsSecondarySharedControlSharer())
 	{
 		SharedCharacterPawn->ApplySharedMovementInput(MovementInput, ESeattleInputContributor::Secondary);
+	}
+}
+
+void ASeattlePlayerController::LocalLeftAttackPressed()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] LocalLeftAttackPressed: local controller input. IsLocal=%d HasAuthority=%d SharedPawn=%s Role=%d"),
+		*GetNameSafe(this), IsLocalController() ? 1 : 0, HasAuthority() ? 1 : 0, *GetNameSafe(ResolveSharedCharacterPawn()), (int32)SharedControlRole);
+
+	// Only clients should send the server request; ignore on authoritative server-local controllers
+	if (!(IsLocalController() && !HasAuthority()))
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LocalLeftAttackPressed: Ignored on server/local-authority controller."), *GetNameSafe(this));
+		return;
+	}
+
+	// Double-tap detection: delay the single-tap action until threshold expires, allow second tap to convert to hook.
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+
+	if (Now - LastLeftTapTime <= DoubleTapThreshold)
+	{
+		// second tap within threshold -> treat as hook
+		if (GetWorldTimerManager().IsTimerActive(LeftTapTimer))
+		{
+			GetWorldTimerManager().ClearTimer(LeftTapTimer);
+		}
+		LastLeftTapTime = 0.f;
+		Server_RequestLeftHook();
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LocalLeftAttackPressed: Detected double-tap -> requesting LeftHook on server"), *GetNameSafe(this));
+	}
+	else
+	{
+		// first tap: start timer to fire single-tap if no second tap arrives
+		LastLeftTapTime = Now;
+		GetWorldTimerManager().SetTimer(LeftTapTimer, this, &ASeattlePlayerController::LeftTapTimerExpired, DoubleTapThreshold, false);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LocalLeftAttackPressed: queued single LeftAttack (waiting for double-tap)"), *GetNameSafe(this));
+	}
+}
+
+void ASeattlePlayerController::LeftTapTimerExpired()
+{
+	// timer fired -> perform single attack
+	if (IsLocalController() && !HasAuthority())
+	{
+		Server_RequestLeftAttack();
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LeftTapTimerExpired: no double-tap detected -> requesting LeftAttack on server"), *GetNameSafe(this));
+	}
+	LastLeftTapTime = 0.f;
+}
+
+void ASeattlePlayerController::LocalLeftHookPressed()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] LocalLeftHookPressed: local controller input. IsLocal=%d HasAuthority=%d SharedPawn=%s Role=%d"),
+		*GetNameSafe(this), IsLocalController() ? 1 : 0, HasAuthority() ? 1 : 0, *GetNameSafe(ResolveSharedCharacterPawn()), (int32)SharedControlRole);
+
+	if (IsLocalController() && !HasAuthority())
+	{
+		Server_RequestLeftHook();
+	}
+}
+
+void ASeattlePlayerController::LocalLeftKickPressed()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] LocalLeftKickPressed: local controller input. IsLocal=%d HasAuthority=%d SharedPawn=%s Role=%d"),
+		*GetNameSafe(this), IsLocalController() ? 1 : 0, HasAuthority() ? 1 : 0, *GetNameSafe(ResolveSharedCharacterPawn()), (int32)SharedControlRole);
+
+	if (IsLocalController() && !HasAuthority())
+	{
+		Server_RequestLeftKick();
+	}
+}
+
+void ASeattlePlayerController::LocalRightAttackPressed()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] LocalRightAttackPressed: local controller input. IsLocal=%d HasAuthority=%d SharedPawn=%s Role=%d"),
+		*GetNameSafe(this), IsLocalController() ? 1 : 0, HasAuthority() ? 1 : 0, *GetNameSafe(ResolveSharedCharacterPawn()), (int32)SharedControlRole);
+
+	if (!(IsLocalController() && !HasAuthority()))
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LocalRightAttackPressed: Ignored on server/local-authority controller."), *GetNameSafe(this));
+		return;
+	}
+
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (Now - LastRightTapTime <= DoubleTapThreshold)
+	{
+		if (GetWorldTimerManager().IsTimerActive(RightTapTimer))
+		{
+			GetWorldTimerManager().ClearTimer(RightTapTimer);
+		}
+		LastRightTapTime = 0.f;
+		Server_RequestRightHook();
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LocalRightAttackPressed: Detected double-tap -> requesting RightHook on server"), *GetNameSafe(this));
+	}
+	else
+	{
+		LastRightTapTime = Now;
+		GetWorldTimerManager().SetTimer(RightTapTimer, this, &ASeattlePlayerController::RightTapTimerExpired, DoubleTapThreshold, false);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] LocalRightAttackPressed: queued single RightAttack (waiting for double-tap)"), *GetNameSafe(this));
+	}
+}
+
+void ASeattlePlayerController::RightTapTimerExpired()
+{
+	if (IsLocalController() && !HasAuthority())
+	{
+		Server_RequestRightAttack();
+		UE_LOG(LogSeattle, Log, TEXT("[%s] RightTapTimerExpired: no double-tap detected -> requesting RightAttack on server"), *GetNameSafe(this));
+	}
+	LastRightTapTime = 0.f;
+}
+
+void ASeattlePlayerController::LocalRightHookPressed()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] LocalRightHookPressed: local controller input. IsLocal=%d HasAuthority=%d SharedPawn=%s Role=%d"),
+		*GetNameSafe(this), IsLocalController() ? 1 : 0, HasAuthority() ? 1 : 0, *GetNameSafe(ResolveSharedCharacterPawn()), (int32)SharedControlRole);
+
+	if (IsLocalController() && !HasAuthority())
+	{
+		Server_RequestRightHook();
+	}
+}
+
+void ASeattlePlayerController::LocalRightKickPressed()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] LocalRightKickPressed: local controller input. IsLocal=%d HasAuthority=%d SharedPawn=%s Role=%d"),
+		*GetNameSafe(this), IsLocalController() ? 1 : 0, HasAuthority() ? 1 : 0, *GetNameSafe(ResolveSharedCharacterPawn()), (int32)SharedControlRole);
+
+	if (IsLocalController() && !HasAuthority())
+	{
+		Server_RequestRightKick();
+	}
+}
+
+// ----------------- Server RPC implementations -----------------
+// Keep existing validation logic; logs will show if RPCs arrive.
+
+bool ASeattlePlayerController::Server_RequestLeftAttack_Validate()
+{
+	return IsPrimarySharedControlOwner() || IsSecondarySharedControlSharer();
+}
+
+void ASeattlePlayerController::Server_RequestLeftAttack_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftAttack_Implementation: Received request from client. Server role=%d SharedPawn=%s"),
+		*GetNameSafe(this), (int32)GetLocalRole(), *GetNameSafe(ResolveSharedCharacterPawn()));
+
+	ASeattleCharacter* Target = ResolveSharedCharacterPawn();
+	if (!Target)
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestLeftAttack_Implementation: No SharedCharacterPawn resolved"), *GetNameSafe(this));
+		return;
+	}
+
+	Target->SetActiveAttackType(ESeattleAttackType::SingleTap);
+
+	if (Target->LeftAttackMontage)
+	{
+		Target->Multicast_PlayAttackMontage(Target->LeftAttackMontage, Target->LeftAttackPlayRate);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftAttack_Implementation: Triggered LeftAttackMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestLeftAttack_Implementation: Target has no LeftAttackMontage assigned."), *GetNameSafe(this));
+	}
+}
+
+bool ASeattlePlayerController::Server_RequestLeftHook_Validate()
+{
+	return IsPrimarySharedControlOwner() || IsSecondarySharedControlSharer();
+}
+
+void ASeattlePlayerController::Server_RequestLeftHook_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftHook_Implementation: Received hook request"), *GetNameSafe(this));
+	ASeattleCharacter* Target = ResolveSharedCharacterPawn();
+	if (!Target) return;
+
+	Target->SetActiveAttackType(ESeattleAttackType::DoubleTap);
+
+	if (Target->LeftHookMontage)
+	{
+		Target->Multicast_PlayAttackMontage(Target->LeftHookMontage, Target->LeftHookPlayRate);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftHook_Implementation: Triggered LeftHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestLeftHook_Implementation: Target has no LeftHookMontage assigned."), *GetNameSafe(this));
+	}
+}
+
+bool ASeattlePlayerController::Server_RequestLeftKick_Validate()
+{
+	return IsPrimarySharedControlOwner() || IsSecondarySharedControlSharer();
+}
+
+void ASeattlePlayerController::Server_RequestLeftKick_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftKick_Implementation: Received kick request"), *GetNameSafe(this));
+	ASeattleCharacter* Target = ResolveSharedCharacterPawn();
+	if (!Target) return;
+
+	Target->SetActiveAttackType(ESeattleAttackType::Hold);
+
+	if (Target->LeftKickMontage)
+	{
+		Target->Multicast_PlayAttackMontage(Target->LeftKickMontage, Target->LeftKickPlayRate);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftKick_Implementation: Triggered LeftKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestLeftKick_Implementation: Target has no LeftKickMontage assigned."), *GetNameSafe(this));
+	}
+}
+
+bool ASeattlePlayerController::Server_RequestRightAttack_Validate()
+{
+	return IsPrimarySharedControlOwner() || IsSecondarySharedControlSharer();
+}
+
+void ASeattlePlayerController::Server_RequestRightAttack_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightAttack_Implementation: Received right-attack request"), *GetNameSafe(this));
+	ASeattleCharacter* Target = ResolveSharedCharacterPawn();
+	if (!Target) return;
+
+	Target->SetActiveAttackType(ESeattleAttackType::SingleTap);
+
+	if (Target->RightJabMontage)
+	{
+		Target->Multicast_PlayAttackMontage(Target->RightJabMontage, Target->RightJabPlayRate);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightAttack_Implementation: Triggered RightJabMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestRightAttack_Implementation: Target has no RightJabMontage assigned."), *GetNameSafe(this));
+	}
+}
+
+bool ASeattlePlayerController::Server_RequestRightHook_Validate()
+{
+	return IsPrimarySharedControlOwner() || IsSecondarySharedControlSharer();
+}
+
+void ASeattlePlayerController::Server_RequestRightHook_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightHook_Implementation: Received right-hook request"), *GetNameSafe(this));
+	ASeattleCharacter* Target = ResolveSharedCharacterPawn();
+	if (!Target) return;
+
+	Target->SetActiveAttackType(ESeattleAttackType::DoubleTap);
+
+	if (Target->RightHookMontage)
+	{
+		Target->Multicast_PlayAttackMontage(Target->RightHookMontage, Target->RightHookPlayRate);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightHook_Implementation: Triggered RightHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestRightHook_Implementation: Target has no RightHookMontage assigned."), *GetNameSafe(this));
+	}
+}
+
+bool ASeattlePlayerController::Server_RequestRightKick_Validate()
+{
+	return IsPrimarySharedControlOwner() || IsSecondarySharedControlSharer();
+}
+
+void ASeattlePlayerController::Server_RequestRightKick_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightKick_Implementation: Received right-kick request"), *GetNameSafe(this));
+	ASeattleCharacter* Target = ResolveSharedCharacterPawn();
+	if (!Target) return;
+
+	Target->SetActiveAttackType(ESeattleAttackType::Hold);
+
+	if (Target->RightKickMontage)
+	{
+		Target->Multicast_PlayAttackMontage(Target->RightKickMontage, Target->RightKickPlayRate);
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightKick_Implementation: Triggered RightKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("[%s] Server_RequestRightKick_Implementation: Target has no RightKickMontage assigned."), *GetNameSafe(this));
 	}
 }
 
