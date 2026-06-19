@@ -1,7 +1,9 @@
 #include "BTTask_PlayBlackboardMontage.h"
 #include "BehaviorTree/BlackboardComponent.h"
+#include "BehaviorTree/BehaviorTreeComponent.h"
 #include "AIController.h"
 #include "SeattleAI.h"
+#include "Animation/AnimMontage.h"
 #include "TimerManager.h"
 #include "Engine/World.h"
 

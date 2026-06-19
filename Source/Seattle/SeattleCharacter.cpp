@@ -16,6 +16,9 @@
 #include "Net/UnrealNetwork.h"
 #include "Seattle.h"
 #include "SeattlePlayerController.h"
+#include "SeattleAI.h"
+#include "ImpactFXActor.h"
+#include "DrawDebugHelpers.h"
 
 ASeattleCharacter::ASeattleCharacter()
 {
@@ -55,6 +58,196 @@ ASeattleCharacter::ASeattleCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+void ASeattleCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
+{
+	if (!ImpactFXActorClass)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, Location, FRotator::ZeroRotator, Params);
+	(void)FX;
+}
+
+void ASeattleCharacter::PlayMontageForAttack(bool bRightSide, ESeattleAttackType AttackType)
+{
+	UAnimMontage* MontageToPlay = nullptr;
+	float PlayRate = 1.f;
+
+	if (bRightSide)
+	{
+		switch (AttackType)
+		{
+		case ESeattleAttackType::SingleTap:
+			MontageToPlay = RightJabMontage;
+			PlayRate = RightJabPlayRate;
+			break;
+		case ESeattleAttackType::DoubleTap:
+			MontageToPlay = RightHookMontage;
+			PlayRate = RightHookPlayRate;
+			break;
+		case ESeattleAttackType::Hold:
+			MontageToPlay = RightKickMontage;
+			PlayRate = RightKickPlayRate;
+			break;
+		default:
+			break;
+		}
+	}
+	else
+	{
+		switch (AttackType)
+		{
+		case ESeattleAttackType::SingleTap:
+			MontageToPlay = LeftAttackMontage;
+			PlayRate = LeftAttackPlayRate;
+			break;
+		case ESeattleAttackType::DoubleTap:
+			MontageToPlay = LeftHookMontage;
+			PlayRate = LeftHookPlayRate;
+			break;
+		case ESeattleAttackType::Hold:
+			MontageToPlay = LeftKickMontage;
+			PlayRate = LeftKickPlayRate;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (MontageToPlay)
+	{
+		RequestPlayAttackMontage(MontageToPlay, PlayRate);
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("PlayMontageForAttack: No montage assigned for side=%d type=%d"), bRightSide ? 1 : 0, (int32)AttackType);
+	}
+}
+
+void ASeattleCharacter::SetReplicatedAimRotation(FRotator NewAimRotation)
+{
+    // Always update locally so the owning client sees immediate aim feedback.
+	ReplicatedAimRotation = NewAimRotation;
+
+	// If we're not authoritative, send the value to server for replication to other clients.
+	if (!HasAuthority())
+	{
+		Server_SetAimRotation(NewAimRotation);
+	}
+}
+
+bool ASeattleCharacter::Server_SetAimRotation_Validate(FRotator NewAimRotation)
+{
+	// basic validation - rotation components within reasonable range
+	return FMath::IsFinite(NewAimRotation.Pitch) && FMath::IsFinite(NewAimRotation.Yaw) && FMath::IsFinite(NewAimRotation.Roll);
+}
+
+void ASeattleCharacter::Server_SetAimRotation_Implementation(FRotator NewAimRotation)
+{
+	ReplicatedAimRotation = NewAimRotation;
+}
+
+void ASeattleCharacter::OnRep_AimRotation()
+{
+	UE_LOG(LogSeattle, Verbose, TEXT("%s OnRep_AimRotation: %s"), *GetNameSafe(this), *ReplicatedAimRotation.ToCompactString());
+}
+
+void ASeattleCharacter::GetAimDeltaAngles(float& OutYaw, float& OutPitch) const
+{
+	// Compute aim delta relative to actor rotation in a normalized way
+	const FRotator ActorRot = GetActorRotation();
+	FRotator AimRot = ReplicatedAimRotation;
+
+	// Normalize both rotators
+	const float AimYaw = FRotator::NormalizeAxis(AimRot.Yaw);
+	const float AimPitch = FRotator::NormalizeAxis(AimRot.Pitch);
+	const float ActorYaw = FRotator::NormalizeAxis(ActorRot.Yaw);
+	const float ActorPitch = FRotator::NormalizeAxis(ActorRot.Pitch);
+
+	float DeltaYaw = AimYaw - ActorYaw;
+	float DeltaPitch = AimPitch - ActorPitch;
+
+	DeltaYaw = FRotator::NormalizeAxis(DeltaYaw);
+	DeltaPitch = FRotator::NormalizeAxis(DeltaPitch);
+
+	// Clamp pitch to conventional limits
+	DeltaPitch = FMath::Clamp(DeltaPitch, -90.f, 90.f);
+
+	OutYaw = DeltaYaw;
+	OutPitch = DeltaPitch;
+}
+
+void ASeattleCharacter::RequestPerformMeleeAttack(FVector AimDirection, float Range, float Radius, float Damage)
+{
+	UE_LOG(LogSeattle, Verbose, TEXT("request perform melee attack %s"), *GetNameSafe(this));
+    // Only non-authoritative owning clients should request the server to perform the melee attack.
+	if (!HasAuthority())
+	{
+		Server_PerformMeleeAttack(AimDirection.GetSafeNormal(), Range, Radius, Damage);
+		return;
+	}
+
+	// Ignore client-style requests on authoritative server instances (prevents server-local BPs from performing attacks).
+	UE_LOG(LogSeattle, Verbose, TEXT("RequestPerformMeleeAttack ignored on authoritative instance for %s"), *GetNameSafe(this));
+}
+
+bool ASeattleCharacter::Server_PerformMeleeAttack_Validate(FVector NormalizedAimDir, float Range, float Radius, float Damage)
+{
+	return NormalizedAimDir.IsNearlyZero() == false && Range > 0.f && Radius >= 0.f && Damage >= 0.f;
+}
+
+void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector NormalizedAimDir, float Range, float Radius, float Damage)
+{
+	// Authority: perform trace and apply damage to any ASeattleAI hit
+	UE_LOG(LogSeattle, Log, TEXT("%s Server_PerformMeleeAttack_Implementation: Aim=%s Range=%f Radius=%f Damage=%f"), *GetNameSafe(this), *NormalizedAimDir.ToString(), Range, Radius, Damage);
+
+	FVector Start = GetActorLocation() + FVector(0.f, 0.f, 70.f);
+	FVector End = Start + NormalizedAimDir * Range;
+
+	FHitResult Hit;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(MeleeAttack), true, this);
+	Params.AddIgnoredActor(this);
+
+	bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params);
+
+	if (bHit && Hit.GetActor())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("%s Melee hit actor %s at location %s"), *GetNameSafe(this), *GetNameSafe(Hit.GetActor()), *Hit.ImpactPoint.ToString());
+
+		if (ASeattleAI* AI = Cast<ASeattleAI>(Hit.GetActor()))
+		{
+			AI->ApplyHealthChange(Damage);
+		}
+		else
+		{
+			// Could add damage interface support here
+		}
+
+		// Optionally draw debug
+		//DrawDebugSphere(GetWorld(), Hit.ImpactPoint, Radius, 12, FColor::Red, false, 2.f);
+
+		// Spawn impact VFX on all clients (multicast). If ImpactFXActorClass is set it will be spawned locally on each client.
+		if (ImpactFXActorClass)
+		{
+			Multicast_SpawnImpactFX(Hit.ImpactPoint);
+		}
+	}
+	else
+	{
+		//DrawDebugLine(GetWorld(), Start, End, FColor::Blue, false, 1.f, 0, 2.f);
+	}
 }
 
 void ASeattleCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -616,4 +809,5 @@ void ASeattleCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(ASeattleCharacter, RightInput);
 	DOREPLIFETIME(ASeattleCharacter, bIsAttacking);
 	DOREPLIFETIME(ASeattleCharacter, ActiveAttackType);
+    DOREPLIFETIME(ASeattleCharacter, ReplicatedAimRotation);
 }

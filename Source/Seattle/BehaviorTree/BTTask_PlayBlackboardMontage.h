@@ -5,6 +5,7 @@
 #include "BehaviorTree/BTTaskNode.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BehaviorTree/BehaviorTreeTypes.h"
+#include "TimerManager.h"
 #include "BTTask_PlayBlackboardMontage.generated.h"
 
 class UAnimMontage;
@@ -36,6 +37,7 @@ public:
     bool bWaitForMontageEnd = false;
 
     virtual EBTNodeResult::Type ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
+    virtual uint16 GetInstanceMemorySize() const override { return sizeof(FBTMontageTaskMemory); }
     virtual EBTNodeResult::Type AbortTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
 
 protected:

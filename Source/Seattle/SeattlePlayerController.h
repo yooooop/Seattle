@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Camera/CameraTypes.h"
+#include "SeattleCharacter.h"
 #include "GameFramework/PlayerController.h"
 #include "SeattlePlayerController.generated.h"
 
@@ -114,6 +115,31 @@ protected:
 
 	UFUNCTION(Server, Unreliable, WithValidation)
 	void Server_SendSharedMovementInput(FVector2D MovementInput);
+
+	/** Convenience: client calls this to request an attack (packages aim + montage + server hit) */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void RequestAttack(bool bRightSide, ESeattleAttackType AttackType, float Range = 200.f, float Radius = 20.f, float Damage = 10.f);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestAttack(bool bRightSide, ESeattleAttackType AttackType, FVector AimDir, float Range, float Radius, float Damage);
+
+	/** Aim replication helper: start/stop periodic sending of aim to server */
+	UFUNCTION(BlueprintCallable, Category = "Aim")
+	void StartAimReplication(float Rate = 10.f);
+
+	UFUNCTION(BlueprintCallable, Category = "Aim")
+	void StopAimReplication();
+
+protected:
+	/** Timer handle for aim replication */
+	FTimerHandle AimReplicationTimerHandle;
+
+	/** Aim replication tick called by timer */
+	void AimReplicationTick();
+
+	/** Aim replication rate in Hz (default 10Hz) */
+	UPROPERTY(EditAnywhere, Category = "Aim")
+	float AimReplicationRate = 10.f;
 
 	/** The InputAction assets for attack inputs - set these in the PlayerController BP to match the mapping context */
 	UPROPERTY(EditAnywhere, Category = "Input")

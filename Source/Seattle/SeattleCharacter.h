@@ -13,6 +13,7 @@ class UInputAction;
 class UAnimMontage;
 struct FInputActionValue;
 class APlayerController;
+class AImpactFXActor;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -261,6 +262,42 @@ public:
 	/** Server-authoritative montage playback for both co-op players. */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
 	void RequestPlayAttackMontage(UAnimMontage* Montage, float PlayRate = 1.f);
+
+	/** Convenience: choose montage from attack type and side and request play */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Animation")
+	void PlayMontageForAttack(bool bRightSide, ESeattleAttackType AttackType);
+
+	/** Aim replication: clients call SetReplicatedAimRotation to send their aim to the server. */
+	UFUNCTION(BlueprintCallable, Category = "Aim")
+	void SetReplicatedAimRotation(FRotator NewAimRotation);
+
+	UFUNCTION(Server, Unreliable, WithValidation)
+	void Server_SetAimRotation(FRotator NewAimRotation);
+
+	UPROPERTY(ReplicatedUsing = OnRep_AimRotation, BlueprintReadOnly, Category = "Aim")
+	FRotator ReplicatedAimRotation;
+
+	UFUNCTION()
+	void OnRep_AimRotation();
+
+	/** Returns the aim delta (Yaw, Pitch) relative to the actor rotation. Useful for AnimBP. */
+	UFUNCTION(BlueprintCallable, Category = "Aim")
+	void GetAimDeltaAngles(float& OutYaw, float& OutPitch) const;
+
+	/** Server-side melee attack request that performs authoritative trace and applies damage. */
+    UFUNCTION(Server, Reliable, WithValidation)
+	void Server_PerformMeleeAttack(FVector NormalizedAimDir, float Range, float Radius, float Damage);
+
+	/** Convenience blueprint-callable wrapper that will route to server when needed. */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void RequestPerformMeleeAttack(FVector AimDirection, float Range = 200.f, float Radius = 20.f, float Damage = 10.f);
+
+    /** Impact VFX actor class to spawn on hits (multicast) */
+	UPROPERTY(EditDefaultsOnly, Category = "VFX")
+	TSubclassOf<AImpactFXActor> ImpactFXActorClass;
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_SpawnImpactFX(FVector Location);
 
 	UFUNCTION()
 	void OnRep_bIsAttacking();

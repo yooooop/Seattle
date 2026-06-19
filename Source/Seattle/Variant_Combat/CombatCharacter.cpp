@@ -15,6 +15,13 @@
 #include "TimerManager.h"
 #include "Engine/LocalPlayer.h"
 #include "CombatPlayerController.h"
+#include "ImpactFXActor.h"
+#include "Net/UnrealNetwork.h"
+#include "DrawDebugHelpers.h"
+// Forward declare spawn helper implementation below
+
+DEFINE_LOG_CATEGORY(LogCombatCharacter);
+
 
 ACombatCharacter::ACombatCharacter()
 {
@@ -49,6 +56,115 @@ ACombatCharacter::ACombatCharacter()
 
 	// set the player tag
 	Tags.Add(FName("Player"));
+}
+
+void ACombatCharacter::Multicast_ReceivedDamage_Implementation(float Damage, const FVector& ImpactPoint, const FVector& DamageDirection)
+{
+	// Forward to the BlueprintImplementableEvent so blueprints can play sounds/VFX locally.
+	ReceivedDamage(Damage, ImpactPoint, DamageDirection);
+}
+
+bool ACombatCharacter::Server_PerformMeleeAttack_Validate(FVector AimDirection, float Range, float Radius, float Damage)
+{
+	return AimDirection.IsNearlyZero() == false && Range > 0.f && Radius >= 0.f && Damage >= 0.f;
+}
+
+void ACombatCharacter::Server_PerformMeleeAttack_Implementation(FVector AimDirection, float Range, float Radius, float Damage)
+{
+	UE_LOG(LogTemp, Log, TEXT("%s Server_PerformMeleeAttack_Implementation: Aim=%s Range=%f Radius=%f Damage=%f"), *GetNameSafe(this), *AimDirection.ToString(), Range, Radius, Damage);
+
+	FVector Start = GetActorLocation() + FVector(0.f, 0.f, 70.f);
+	FVector End = Start + AimDirection.GetSafeNormal() * Range;
+
+	TArray<FHitResult> OutHits;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(CombatMelee), true, this);
+	Params.AddIgnoredActor(this);
+
+	bool bHit = GetWorld()->SweepMultiByChannel(OutHits, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params);
+
+    if (bHit)
+	{
+		// Deduplicate hits by actor so we only spawn one impact FX / apply damage once per actor per attack
+		TMap<AActor*, FHitResult> BestHitPerActor;
+		BestHitPerActor.Reserve(OutHits.Num());
+
+		for (const FHitResult& Hit : OutHits)
+		{
+			AActor* HitActor = Hit.GetActor();
+			if (!HitActor)
+			{
+				continue;
+			}
+
+			const float DistSqr = (Hit.ImpactPoint - Start).SizeSquared();
+
+			if (FHitResult* Existing = BestHitPerActor.Find(HitActor))
+			{
+				const float ExistingDistSqr = (Existing->ImpactPoint - Start).SizeSquared();
+				if (DistSqr < ExistingDistSqr)
+				{
+					BestHitPerActor[HitActor] = Hit;
+				}
+			}
+			else
+			{
+				BestHitPerActor.Add(HitActor, Hit);
+			}
+		}
+
+		for (const TPair<AActor*, FHitResult>& Pair : BestHitPerActor)
+		{
+			const FHitResult& Hit = Pair.Value;
+			AActor* HitActor = Pair.Key;
+
+			if (ICombatDamageable* Damageable = Cast<ICombatDamageable>(HitActor))
+			{
+				const FVector Impulse = (Hit.ImpactNormal * -MeleeKnockbackImpulse) + (FVector::UpVector * MeleeLaunchImpulse);
+				Damageable->ApplyDamage(Damage, this, Hit.ImpactPoint, Impulse);
+			}
+
+			if (ImpactFXActorClass)
+			{
+				Multicast_SpawnImpactFX(Hit.ImpactPoint);
+			}
+		}
+	}
+	else
+	{
+		DrawDebugLine(GetWorld(), Start, End, FColor::Blue, false, 1.f, 0, 2.f);
+	}
+}
+
+void ACombatCharacter::RequestPerformMeleeAttack(FVector AimDirection, float Range, float Radius, float Damage)
+{
+    // Only non-authoritative owning clients should request the server to perform the melee attack.
+	if (!HasAuthority())
+	{
+		Server_PerformMeleeAttack(AimDirection.GetSafeNormal(), Range, Radius, Damage);
+		return;
+	}
+
+	// If this instance is authoritative (server/listen-server), ignore client-style requests so only clients drive attacks.
+	UE_LOG(LogCombatCharacter, Verbose, TEXT("RequestPerformMeleeAttack ignored on authoritative instance for %s"), *GetNameSafe(this));
+}
+
+void ACombatCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
+{
+	if (!ImpactFXActorClass)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, Location, FRotator::ZeroRotator, Params);
+	(void)FX;
 }
 
 void ACombatCharacter::Move(const FInputActionValue& Value)
@@ -274,27 +390,16 @@ void ACombatCharacter::DoAttackTrace(FName DamageSourceBone)
 	FCollisionQueryParams QueryParams;
 	QueryParams.AddIgnoredActor(this);
 
-	if (GetWorld()->SweepMultiByObjectType(OutHits, TraceStart, TraceEnd, FQuat::Identity, ObjectParams, CollisionShape, QueryParams))
+    // Use the authoritative server melee path so all attacks spawn impact FX consistently.
+	// Compute an aim direction: prefer controller control rotation forward if available, else actor forward.
+	FVector AimDir = GetActorForwardVector();
+	if (AController* C = GetController())
 	{
-		// iterate over each object hit
-		for (const FHitResult& CurrentHit : OutHits)
-		{
-			// check if we've hit a damageable actor
-			ICombatDamageable* Damageable = Cast<ICombatDamageable>(CurrentHit.GetActor());
-
-			if (Damageable)
-			{
-				// knock upwards and away from the impact normal
-				const FVector Impulse = (CurrentHit.ImpactNormal * -MeleeKnockbackImpulse) + (FVector::UpVector * MeleeLaunchImpulse);
-
-				// pass the damage event to the actor
-				Damageable->ApplyDamage(MeleeDamage, this, CurrentHit.ImpactPoint, Impulse);
-
-				// call the BP handler to play effects, etc.
-				DealtDamage(MeleeDamage, CurrentHit.ImpactPoint);
-			}
-		}
+		AimDir = C->GetControlRotation().Vector();
 	}
+
+	// Request server to perform the authoritative melee sweep which will apply damage and spawn FX.
+	RequestPerformMeleeAttack(AimDir, MeleeTraceDistance, MeleeTraceRadius, MeleeDamage);
 }
 
 void ACombatCharacter::CheckCombo()
@@ -396,8 +501,9 @@ void ACombatCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FVe
 			GetMesh()->AddImpulseAtLocation(DamageImpulse * GetMesh()->GetMass(), DamageLocation);
 		}
 
-		// pass control to BP to play effects, etc.
-		ReceivedDamage(ActualDamage, DamageLocation, DamageImpulse.GetSafeNormal());
+        // pass control to BP to play effects, etc.  Run this as a multicast so clients also play
+		// audio/VFX locally.
+		Multicast_ReceivedDamage(ActualDamage, DamageLocation, DamageImpulse.GetSafeNormal());
 	}
 
 }

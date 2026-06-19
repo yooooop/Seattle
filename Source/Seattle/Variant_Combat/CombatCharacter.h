@@ -306,9 +306,28 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, Category="Combat")
 	void DealtDamage(float Damage, const FVector& ImpactPoint);
 
+	/** Impact VFX actor class to spawn on hits (multicast) */
+	UPROPERTY(EditDefaultsOnly, Category = "VFX")
+	TSubclassOf<class AImpactFXActor> ImpactFXActorClass;
+
+ UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_SpawnImpactFX(FVector Location);
+
+	/** Aim-based server melee attack (so combat variant uses same authoritative path) */
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void RequestPerformMeleeAttack(FVector AimDirection, float Range = 200.f, float Radius = 20.f, float Damage = 10.f);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_PerformMeleeAttack(FVector AimDirection, float Range, float Radius, float Damage);
+
+
 	/** Blueprint handler to play damage received effects */
-	UFUNCTION(BlueprintImplementableEvent, Category="Combat")
-	void ReceivedDamage(float Damage, const FVector& ImpactPoint, const FVector& DamageDirection);
+  UFUNCTION(BlueprintImplementableEvent, Category="Combat")
+  void ReceivedDamage(float Damage, const FVector& ImpactPoint, const FVector& DamageDirection);
+
+  /** Multicast wrapper so damage received effects (audio/VFX) run on all clients */
+  UFUNCTION(NetMulticast, Unreliable)
+  void Multicast_ReceivedDamage(float Damage, const FVector& ImpactPoint, const FVector& DamageDirection);
 
 protected:
 
