@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "CombatAttacker.h"
 #include "SeattleCharacter.generated.h"
 
 class USpringArmComponent;
@@ -38,7 +39,7 @@ enum class ESeattleAttackType : uint8
  *  Implements a controllable orbiting camera
  */
 UCLASS(abstract)
-class ASeattleCharacter : public ACharacter
+class ASeattleCharacter : public ACharacter, public ICombatAttacker
 {
 	GENERATED_BODY()
 
@@ -298,6 +299,23 @@ public:
 
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_SpawnImpactFX(FVector Location);
+
+	/** Melee attack tuning (used by player controller to request server melee) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float MeleeRange = 200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float MeleeRadius = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float MeleeDamage = 10.f;
+
+	// ~begin CombatAttacker interface
+public:
+	virtual void DoAttackTrace(FName DamageSourceBone) override;
+	virtual void CheckCombo() override;
+	virtual void CheckChargedAttack() override;
+	// ~end CombatAttacker interface
 
 	UFUNCTION()
 	void OnRep_bIsAttacking();

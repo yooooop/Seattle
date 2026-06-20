@@ -7,6 +7,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
 #include "GameFramework/Actor.h"
+#include "SeattleGameMode.h"
 
 ASeattleAI::ASeattleAI()
 {
@@ -28,7 +29,22 @@ void ASeattleAI::BeginPlay()
 
 void ASeattleAI::Tick(float DeltaTime)
 {
-	Super::Tick(DeltaTime);
+    Super::Tick(DeltaTime);
+
+	// If the match hasn't started yet, don't perform AI logic on the server
+	if (HasAuthority())
+	{
+		if (UWorld* World = GetWorld())
+		{
+			if (ASeattleGameMode* GM = World->GetAuthGameMode<ASeattleGameMode>())
+			{
+				if (!GM->IsGameStarted())
+				{
+					return;
+				}
+			}
+		}
+	}
 }
 
 void ASeattleAI::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

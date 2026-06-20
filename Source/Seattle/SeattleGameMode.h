@@ -52,4 +52,15 @@ protected:
 
 	/** Counts active player controllers in the world. */
 	int32 GetActivePlayerControllerCount() const;
+
+	/** Whether the match/game has started (main menu dismissed) */
+	UPROPERTY(BlueprintReadOnly, Category = "Match")
+	bool bGameStarted = false;
+
+public:
+	UFUNCTION(BlueprintCallable, Category = "Match")
+	bool IsGameStarted() const { return bGameStarted; }
+
+	UFUNCTION(BlueprintCallable, Category = "Match")
+	void SetGameStarted(bool bStarted) { bGameStarted = bStarted; }
 };

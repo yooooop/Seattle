@@ -4,10 +4,13 @@
 #include "SeattleCharacter.h"
 #include "SeattlePlayerController.h"
 #include "GameFramework/PlayerController.h"
+#include "UI/SeattleHUD.h"
 
 ASeattleGameMode::ASeattleGameMode()
 {
-	// stub
+    // set default HUD class to our Seattle HUD
+	HUDClass = ASeattleHUD::StaticClass();
+	bGameStarted = false;
 }
 
 APawn* ASeattleGameMode::SpawnDefaultPawnFor_Implementation(AController* NewController, AActor* StartSpot)

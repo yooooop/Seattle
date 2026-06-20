@@ -16,6 +16,9 @@
 #include "Net/UnrealNetwork.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "TimerManager.h"
+#include "SeattleAIController.h"
+#include "SeattleGameMode.h"
+#include "UI/SeattleHUD.h"
 
 ASeattlePlayerController::ASeattlePlayerController()
 {
@@ -24,6 +27,81 @@ ASeattlePlayerController::ASeattlePlayerController()
 	SharedLocalFollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("SharedLocalFollowCamera"));
 	SharedLocalFollowCamera->bUsePawnControlRotation = false;
 	SharedLocalFollowCamera->SetActive(false);
+}
+
+bool ASeattlePlayerController::Server_RequestStartGame_Validate()
+{
+	return true;
+}
+
+void ASeattlePlayerController::Server_RequestStartGame_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("Server_RequestStartGame_Implementation: request from %s"), *GetNameSafe(this));
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	ASeattleGameMode* GM = World->GetAuthGameMode<ASeattleGameMode>();
+	if (!GM)
+	{
+		return;
+	}
+
+	if (GM->IsGameStarted())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("Server_RequestStartGame_Implementation: game already started"));
+		return;
+	}
+
+	// mark started
+	GM->SetGameStarted(true);
+
+	// Notify all player controllers (client-side) to hide main menu
+	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (APlayerController* PC = It->Get())
+		{
+			if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
+			{
+				SPC->Client_StartGame();
+			}
+		}
+	}
+
+	// Start AI logic for all AI controllers now that the match has started
+	for (FConstControllerIterator It = World->GetControllerIterator(); It; ++It)
+	{
+		AController* C = It->Get();
+		if (!C)
+		{
+			continue;
+		}
+
+		// Seattle AI controller
+		if (ASeattleAIController* SAI = Cast<ASeattleAIController>(C))
+		{
+			if (SAI->GetLocalRole() == ROLE_Authority)
+			{
+				UE_LOG(LogSeattle, Log, TEXT("Starting AI on %s"), *GetNameSafe(SAI));
+				SAI->StartAI();
+			}
+		}
+	}
+}
+
+void ASeattlePlayerController::Client_StartGame_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("Client_StartGame_Implementation: running on %s"), *GetNameSafe(this));
+	if (APlayerController* PC = Cast<APlayerController>(this))
+	{
+		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
+		{
+			HUD->HideMainMenu();
+		}
+	}
 }
 
 void ASeattlePlayerController::StartAimReplication(float Rate)
@@ -635,7 +713,7 @@ void ASeattlePlayerController::Server_RequestLeftAttack_Implementation()
 
 	Target->SetActiveAttackType(ESeattleAttackType::SingleTap);
 
-	if (Target->LeftAttackMontage)
+    if (Target->LeftAttackMontage)
 	{
 		Target->Multicast_PlayAttackMontage(Target->LeftAttackMontage, Target->LeftAttackPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftAttack_Implementation: Triggered LeftAttackMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -659,7 +737,7 @@ void ASeattlePlayerController::Server_RequestLeftHook_Implementation()
 
 	Target->SetActiveAttackType(ESeattleAttackType::DoubleTap);
 
-	if (Target->LeftHookMontage)
+    if (Target->LeftHookMontage)
 	{
 		Target->Multicast_PlayAttackMontage(Target->LeftHookMontage, Target->LeftHookPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftHook_Implementation: Triggered LeftHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -683,7 +761,7 @@ void ASeattlePlayerController::Server_RequestLeftKick_Implementation()
 
 	Target->SetActiveAttackType(ESeattleAttackType::Hold);
 
-	if (Target->LeftKickMontage)
+    if (Target->LeftKickMontage)
 	{
 		Target->Multicast_PlayAttackMontage(Target->LeftKickMontage, Target->LeftKickPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftKick_Implementation: Triggered LeftKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -707,7 +785,7 @@ void ASeattlePlayerController::Server_RequestRightAttack_Implementation()
 
 	Target->SetActiveAttackType(ESeattleAttackType::SingleTap);
 
-	if (Target->RightJabMontage)
+    if (Target->RightJabMontage)
 	{
 		Target->Multicast_PlayAttackMontage(Target->RightJabMontage, Target->RightJabPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightAttack_Implementation: Triggered RightJabMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -731,7 +809,7 @@ void ASeattlePlayerController::Server_RequestRightHook_Implementation()
 
 	Target->SetActiveAttackType(ESeattleAttackType::DoubleTap);
 
-	if (Target->RightHookMontage)
+    if (Target->RightHookMontage)
 	{
 		Target->Multicast_PlayAttackMontage(Target->RightHookMontage, Target->RightHookPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightHook_Implementation: Triggered RightHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -755,7 +833,7 @@ void ASeattlePlayerController::Server_RequestRightKick_Implementation()
 
 	Target->SetActiveAttackType(ESeattleAttackType::Hold);
 
-	if (Target->RightKickMontage)
+    if (Target->RightKickMontage)
 	{
 		Target->Multicast_PlayAttackMontage(Target->RightKickMontage, Target->RightKickPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightKick_Implementation: Triggered RightKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));

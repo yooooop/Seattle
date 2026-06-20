@@ -35,6 +35,15 @@ public:
 
 	ASeattlePlayerController();
 
+
+	/** Client tells server to start the match for all players (pressed Start) */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestStartGame();
+
+	/** Server calls this on clients to instruct them to hide their main menu/start the game */
+	UFUNCTION(Client, Reliable)
+	void Client_StartGame();
+
 protected:
 
 	/** Input Mapping Contexts */

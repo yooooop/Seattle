@@ -19,6 +19,7 @@
 #include "SeattleAI.h"
 #include "ImpactFXActor.h"
 #include "DrawDebugHelpers.h"
+#include "CombatAttacker.h"
 
 ASeattleCharacter::ASeattleCharacter()
 {
@@ -59,6 +60,8 @@ ASeattleCharacter::ASeattleCharacter()
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
+
+
 
 void ASeattleCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
 {
@@ -191,7 +194,7 @@ void ASeattleCharacter::GetAimDeltaAngles(float& OutYaw, float& OutPitch) const
 
 void ASeattleCharacter::RequestPerformMeleeAttack(FVector AimDirection, float Range, float Radius, float Damage)
 {
-	UE_LOG(LogSeattle, Verbose, TEXT("request perform melee attack %s"), *GetNameSafe(this));
+    UE_LOG(LogSeattle, Log, TEXT("request perform melee attack %s"), *GetNameSafe(this));
     // Only non-authoritative owning clients should request the server to perform the melee attack.
 	if (!HasAuthority())
 	{
@@ -205,7 +208,13 @@ void ASeattleCharacter::RequestPerformMeleeAttack(FVector AimDirection, float Ra
 
 bool ASeattleCharacter::Server_PerformMeleeAttack_Validate(FVector NormalizedAimDir, float Range, float Radius, float Damage)
 {
-	return NormalizedAimDir.IsNearlyZero() == false && Range > 0.f && Radius >= 0.f && Damage >= 0.f;
+    UE_LOG(LogSeattle, Log, TEXT("Server_PerformMeleeAttack_Validate: Aim=%s Range=%f Radius=%f Damage=%f"), *NormalizedAimDir.ToString(), Range, Radius, Damage);
+	const bool bValid = (NormalizedAimDir.IsNearlyZero() == false) && (Range > 0.f) && (Radius >= 0.f) && (Damage >= 0.f);
+	if (!bValid)
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("Server_PerformMeleeAttack_Validate: validation failed (Aim zero or invalid params)."));
+	}
+	return bValid;
 }
 
 void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector NormalizedAimDir, float Range, float Radius, float Damage)
@@ -682,6 +691,47 @@ void ASeattleCharacter::DoJumpEnd()
 	// signal the character to stop jumping
 	StopJumping();
 }
+
+// ~begin CombatAttacker interface
+void ASeattleCharacter::DoAttackTrace(FName DamageSourceBone)
+{
+	UE_LOG(LogSeattle, Log, TEXT("NOT POSSIBLE NOT POSSIBLE  DoAttackTrace called on %s; DamageSourceBone=%s HasAuthority=%d"), *GetNameSafe(this), *DamageSourceBone.ToString(), HasAuthority() ? 1 : 0);
+
+	// Compute aim direction: prefer replicated aim rotation if available, else controller forward, else actor forward
+	FVector AimDir = GetActorForwardVector();
+	if (!ReplicatedAimRotation.IsZero())
+	{
+		AimDir = ReplicatedAimRotation.Vector();
+	}
+	else if (AController* C = GetController())
+	{
+		AimDir = C->GetControlRotation().Vector();
+	}
+
+    UE_LOG(LogSeattle, Log, TEXT("DoAttackTrace: computed AimDir=%s. Requesting melee attack."), *AimDir.ToString());
+
+	// If we're the authority, perform the melee sweep directly. Otherwise request the server.
+	if (HasAuthority())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("DoAttackTrace: running authoritative melee sweep locally on %s"), *GetNameSafe(this));
+		Server_PerformMeleeAttack(AimDir.GetSafeNormal(), MeleeRange, MeleeRadius, MeleeDamage);
+	}
+	else
+	{
+		RequestPerformMeleeAttack(AimDir.GetSafeNormal(), MeleeRange, MeleeRadius, MeleeDamage);
+	}
+}
+
+void ASeattleCharacter::CheckCombo()
+{
+	// Not used in this simple character implementation
+}
+
+void ASeattleCharacter::CheckChargedAttack()
+{
+	// Not used in this simple character implementation
+}
+// ~end CombatAttacker interface
 
 void ASeattleCharacter::SetActiveAttackType(ESeattleAttackType NewAttackType)
 {
