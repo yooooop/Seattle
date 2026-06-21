@@ -19,6 +19,7 @@
 #include "Net/UnrealNetwork.h"
 #include "DrawDebugHelpers.h"
 // Forward declare spawn helper implementation below
+#include "Camera/CameraShakeBase.h"
 
 DEFINE_LOG_CATEGORY(LogCombatCharacter);
 
@@ -62,6 +63,16 @@ void ACombatCharacter::Multicast_ReceivedDamage_Implementation(float Damage, con
 {
 	// Forward to the BlueprintImplementableEvent so blueprints can play sounds/VFX locally.
 	ReceivedDamage(Damage, ImpactPoint, DamageDirection);
+}
+
+void ACombatCharacter::Client_PlayHitEffects_Implementation()
+{
+	// Play camera shake on owning client
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (PC && HitCameraShakeClass)
+	{
+		PC->ClientStartCameraShake(HitCameraShakeClass);
+	}
 }
 
 bool ACombatCharacter::Server_PerformMeleeAttack_Validate(FVector AimDirection, float Range, float Radius, float Damage)
@@ -544,6 +555,8 @@ void ACombatCharacter::RespawnCharacter()
 
 float ACombatCharacter::TakeDamage(float Damage, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
+    UE_LOG(LogCombatCharacter, Log, TEXT("ACombatCharacter::TakeDamage called on %s by %s Damage=%f"), *GetNameSafe(this), DamageCauser ? *GetNameSafe(DamageCauser) : TEXT("null"), Damage);
+
 	// only process damage if the character is still alive
 	if (CurrentHP <= 0.0f)
 	{
@@ -561,8 +574,16 @@ float ACombatCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dama
 	}
 	else
 	{
-		// update the life bar
+        // update the life bar
 		LifeBarWidget->SetLifePercentage(CurrentHP / MaxHP);
+
+		// notify HUD / listeners
+		float HealthPercent = CurrentHP / MaxHP;
+		float HealthDelta = Damage;
+		OnHealthChanged.Broadcast(CurrentHP, HealthDelta);
+
+		// play client-side hit effects on owning client
+		Client_PlayHitEffects();
 
 		// enable partial ragdoll physics, but keep the pelvis vertical
 		GetMesh()->SetPhysicsBlendWeight(0.5f);
@@ -571,6 +592,15 @@ float ACombatCharacter::TakeDamage(float Damage, struct FDamageEvent const& Dama
 
 	// return the received damage amount
 	return Damage;
+}
+
+float ACombatCharacter::GetHealthPercent() const
+{
+	if (MaxHP <= 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp(CurrentHP / MaxHP, 0.f, 1.f);
 }
 
 void ACombatCharacter::Landed(const FHitResult& Hit)

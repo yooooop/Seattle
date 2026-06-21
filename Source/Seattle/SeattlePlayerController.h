@@ -44,6 +44,14 @@ public:
 	UFUNCTION(Client, Reliable)
 	void Client_StartGame();
 
+    /** Server notifies all clients and stops AI when end-game occurs */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_NotifyEndGame();
+
+	/** Client RPC to start the end-sequence UI locally */
+	UFUNCTION(Client, Reliable)
+	void Client_StartEndSequence(AActor* DownedActor);
+
 protected:
 
 	/** Input Mapping Contexts */

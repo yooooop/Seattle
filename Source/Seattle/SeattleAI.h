@@ -5,13 +5,14 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "SeattleCharacter.h"
+#include "Variant_Combat/Interfaces/CombatAttacker.h"
 #include "Animation/AnimMontage.h"
 #include "SeattleAI.generated.h"
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSeattleAIHealthChangedSignature, float, NewHealth, float, HealthDelta);
 
 UCLASS()
-class SEATTLE_API ASeattleAI : public ACharacter
+class SEATTLE_API ASeattleAI : public ACharacter, public ICombatAttacker
 {
 	GENERATED_BODY()
 
@@ -137,6 +138,30 @@ public:
 
 	UFUNCTION()
 	void OnRep_ActiveAttackType();
+
+	/** Returns current health as 0..1 percent */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	float GetHealthPercent() const;
+
+	// ~begin CombatAttacker interface
+	public:
+	virtual void DoAttackTrace(FName DamageSourceBone) override;
+	virtual void CheckCombo() override {}
+	virtual void CheckChargedAttack() override {}
+
+	/** AI melee tuning */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float MeleeRange = 200.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float MeleeRadius = 20.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float MeleeDamage = 10.f;
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_DoAttackTrace(FName DamageSourceBone);
+	// ~end CombatAttacker interface
 
 protected:
 

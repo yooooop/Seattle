@@ -9,6 +9,8 @@
 #include "Animation/AnimInstance.h"
 #include "CombatCharacter.generated.h"
 
+class UCameraShakeBase;
+
 class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
@@ -30,6 +32,20 @@ UCLASS(abstract)
 class ACombatCharacter : public ACharacter, public ICombatAttacker, public ICombatDamageable
 {
 	GENERATED_BODY()
+
+public:
+	DECLARE_MULTICAST_DELEGATE_TwoParams(FCombatHealthChangedSignature, float, float);
+
+	/** Health changed delegate (C++ only) */
+	FCombatHealthChangedSignature OnHealthChanged;
+
+	/** Camera shake to play when this character is hit (assign in BP) */
+	UPROPERTY(EditDefaultsOnly, Category = "VFX")
+	TSubclassOf<class UCameraShakeBase> HitCameraShakeClass;
+
+	/** Client-side effects when damaged (camera shake, local FX) */
+	UFUNCTION(Client, Unreliable)
+	void Client_PlayHitEffects();
 
 	/** Camera boom positioning the camera behind the character */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
@@ -189,6 +205,10 @@ public:
 	
 	/** Constructor */
 	ACombatCharacter();
+
+	/** Returns current health as 0..1 percent */
+	UFUNCTION(BlueprintCallable, Category = "Damage")
+	float GetHealthPercent() const;
 
 protected:
 

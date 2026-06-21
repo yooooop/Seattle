@@ -8,6 +8,9 @@
 #include "Animation/AnimInstance.h"
 #include "GameFramework/Actor.h"
 #include "SeattleGameMode.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
+#include "Variant_Combat/Interfaces/CombatDamageable.h"
 
 ASeattleAI::ASeattleAI()
 {
@@ -15,6 +18,108 @@ ASeattleAI::ASeattleAI()
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
 	SetReplicateMovement(true);
+}
+
+void ASeattleAI::DoAttackTrace(FName DamageSourceBone)
+{
+	UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace called. Authority=%d Bone=%s"), *GetName(), HasAuthority() ? 1 : 0, *DamageSourceBone.ToString());
+
+	// If not authoritative, route to server
+	if (!HasAuthority())
+	{
+		Server_DoAttackTrace(DamageSourceBone);
+		return;
+	}
+
+	USkeletalMeshComponent* Skel = GetMesh();
+	FVector Start = Skel ? Skel->GetSocketLocation(DamageSourceBone) : (GetActorLocation() + FVector(0.f, 0.f, 70.f));
+	FVector End = Start + (GetActorForwardVector() * MeleeRange);
+
+	TArray<FHitResult> OutHits;
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(AI_Melee), true, this);
+	Params.AddIgnoredActor(this);
+
+	const bool bHit = GetWorld()->SweepMultiByChannel(OutHits, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(MeleeRadius), Params);
+
+	if (bHit)
+	{
+		// Deduplicate per actor (closest impact)
+		TMap<AActor*, FHitResult> BestHitPerActor;
+		BestHitPerActor.Reserve(OutHits.Num());
+
+		for (const FHitResult& Hit : OutHits)
+		{
+			AActor* HitActor = Hit.GetActor();
+			if (!HitActor) continue;
+
+			const float DistSqr = (Hit.ImpactPoint - Start).SizeSquared();
+
+			if (FHitResult* Existing = BestHitPerActor.Find(HitActor))
+			{
+				const float ExistingDistSqr = (Existing->ImpactPoint - Start).SizeSquared();
+				if (DistSqr < ExistingDistSqr)
+				{
+					BestHitPerActor[HitActor] = Hit;
+				}
+			}
+			else
+			{
+				BestHitPerActor.Add(HitActor, Hit);
+			}
+		}
+
+		for (const TPair<AActor*, FHitResult>& Pair : BestHitPerActor)
+		{
+			AActor* HitActor = Pair.Key;
+			const FHitResult& Hit = Pair.Value;
+
+			if (!HitActor) continue;
+
+			// Prefer generic combat damageable interface
+			if (ICombatDamageable* Damageable = Cast<ICombatDamageable>(HitActor))
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace: Applying %.1f damage to %s"), *GetName(), MeleeDamage, *GetNameSafe(HitActor));
+				Damageable->ApplyDamage(MeleeDamage, this, Hit.ImpactPoint, FVector::ZeroVector);
+			}
+			else if (ASeattleCharacter* Char = Cast<ASeattleCharacter>(HitActor))
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace: Applying %.1f damage to SeattleCharacter %s"), *GetName(), MeleeDamage, *GetNameSafe(Char));
+				Char->ApplyDamage(MeleeDamage, this, Hit.ImpactPoint, FVector::ZeroVector);
+			}
+
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 2.0f, FColor::Red, FString::Printf(TEXT("%s hit %s for %.1f"), *GetName(), *GetNameSafe(HitActor), MeleeDamage));
+			}
+		}
+	}
+	else
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 1.0f, FColor::Green, FString::Printf(TEXT("%s DoAttackTrace: no hit"), *GetName()));
+		}
+	}
+}
+
+bool ASeattleAI::Server_DoAttackTrace_Validate(FName DamageSourceBone)
+{
+	return true;
+}
+
+void ASeattleAI::Server_DoAttackTrace_Implementation(FName DamageSourceBone)
+{
+	// Server will execute DoAttackTrace authoritative logic
+	DoAttackTrace(DamageSourceBone);
+}
+
+float ASeattleAI::GetHealthPercent() const
+{
+	if (MaxHealth <= 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp(Health / MaxHealth, 0.f, 1.f);
 }
 
 void ASeattleAI::BeginPlay()

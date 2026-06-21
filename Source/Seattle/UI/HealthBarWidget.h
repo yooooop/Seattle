@@ -18,6 +18,14 @@ public:
     UFUNCTION(BlueprintCallable, Category="UI")
     void SetHealthPercent(float InPercent);
 
+    /** Mark this widget as representing an opponent (red) or player (green) */
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void SetIsOpponent(bool bOpponent);
+
+    /** Whether this health bar represents an opponent */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="UI")
+    bool bIsOpponent = false;
+
 protected:
     virtual void NativeConstruct() override;
 
@@ -28,4 +36,12 @@ protected:
     /** Icon image slot */
     UPROPERTY(meta = (BindWidgetOptional))
     UImage* IconImage;
+
+    /** Optional left-side icon (for player) */
+    UPROPERTY(meta = (BindWidgetOptional))
+    UImage* LeftIconImage;
+
+    /** Optional right-side icon (for opponent) */
+    UPROPERTY(meta = (BindWidgetOptional))
+    UImage* RightIconImage;
 };

@@ -20,6 +20,9 @@
 #include "ImpactFXActor.h"
 #include "DrawDebugHelpers.h"
 #include "CombatAttacker.h"
+#include "Variant_Combat/Interfaces/CombatDamageable.h"
+#include "Variant_Combat/AI/CombatEnemy.h"
+#include "Camera/CameraShakeBase.h"
 
 ASeattleCharacter::ASeattleCharacter()
 {
@@ -59,6 +62,124 @@ ASeattleCharacter::ASeattleCharacter()
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+}
+
+void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<AImpactFXActor> FXClass, FVector Location)
+{
+	TSubclassOf<AImpactFXActor> UseClass = FXClass ? FXClass : ImpactFXActorClass;
+	if (!UseClass)
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(UseClass, Location, FRotator::ZeroRotator, Params);
+	(void)FX;
+}
+
+float ASeattleCharacter::GetHealthPercent() const
+{
+	if (MaxHealth <= 0.f)
+	{
+		return 0.f;
+	}
+	return FMath::Clamp(Health / MaxHealth, 0.f, 1.f);
+}
+
+void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FVector& DamageLocation, const FVector& DamageImpulse)
+{
+    UE_LOG(LogSeattle, Log, TEXT("ASeattleCharacter::ApplyDamage called on %s by %s Damage=%f HasAuthority=%d"), *GetNameSafe(this), DamageCauser ? *GetNameSafe(DamageCauser) : TEXT("null"), Damage, HasAuthority() ? 1 : 0);
+
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// always apply fixed 10 damage when hit by AI, otherwise use provided damage
+	float Applied = Damage;
+	if (DamageCauser && (DamageCauser->IsA(ASeattleAI::StaticClass()) || DamageCauser->IsA(AActor::StaticClass())))
+	{
+		// if instigator is AI (ASeattleAI or CombatEnemy), use 10
+		if (DamageCauser->IsA(ASeattleAI::StaticClass()) || DamageCauser->IsA(ACombatEnemy::StaticClass()))
+		{
+			Applied = 10.f;
+		}
+	}
+
+    const float Previous = Health;
+	Health = FMath::Clamp(Health - Applied, 0.f, MaxHealth);
+
+	const float HealthDelta = Previous - Health;
+
+	// spawn different impact FX when hit by AI
+	if (DamageCauser && (DamageCauser->IsA(ASeattleAI::StaticClass()) || DamageCauser->IsA(ACombatEnemy::StaticClass())))
+	{
+		// prefer AI-specific FX class if set, otherwise fallback to generic
+		TSubclassOf<AImpactFXActor> UseClass = ImpactFXActorAIHitClass ? ImpactFXActorAIHitClass : ImpactFXActorClass;
+		if (UseClass)
+		{
+            // spawn via multicast so all clients see it
+			Multicast_SpawnImpactFXClass(UseClass, DamageLocation);
+		}
+	}
+	else
+	{
+		// generic impact FX
+        Multicast_SpawnImpactFX(DamageLocation);
+	}
+
+    // Broadcast health change to listeners (HUD, etc.)
+	OnHealthChanged.Broadcast(Health, HealthDelta);
+
+	// Trigger client-side effects on the owning client
+	Client_PlayHitEffects();
+
+	if (Health <= 0.f && Previous > 0.f)
+	{
+		HandleDeath();
+	}
+}
+
+void ASeattleCharacter::HandleDeath()
+{
+	// default behavior: disable input and ragdoll
+	GetCharacterMovement()->DisableMovement();
+	GetMesh()->SetSimulatePhysics(true);
+}
+
+void ASeattleCharacter::ApplyHealing(float Healing, AActor* Healer)
+{
+	if (!HasAuthority()) return;
+	Health = FMath::Clamp(Health + Healing, 0.f, MaxHealth);
+}
+
+void ASeattleCharacter::NotifyDanger(const FVector& DangerLocation, AActor* DangerSource)
+{
+	// optional: react to incoming attacks
+}
+
+void ASeattleCharacter::OnRep_Health()
+{
+    OnHealthChanged.Broadcast(Health, 0.f);
+}
+
+void ASeattleCharacter::Client_PlayHitEffects_Implementation()
+{
+	// Play camera shake on owning client
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (PC && HitCameraShakeClass)
+	{
+		PC->ClientStartCameraShake(HitCameraShakeClass);
+	}
+	// Could also play local-only VFX here if desired
 }
 
 
@@ -147,7 +268,7 @@ void ASeattleCharacter::SetReplicatedAimRotation(FRotator NewAimRotation)
 	// If we're not authoritative, send the value to server for replication to other clients.
 	if (!HasAuthority())
 	{
-		Server_SetAimRotation(NewAimRotation);
+	//	Server_SetAimRotation(NewAimRotation);
 	}
 }
 
@@ -860,4 +981,5 @@ void ASeattleCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(ASeattleCharacter, bIsAttacking);
 	DOREPLIFETIME(ASeattleCharacter, ActiveAttackType);
     DOREPLIFETIME(ASeattleCharacter, ReplicatedAimRotation);
+    DOREPLIFETIME(ASeattleCharacter, Health);
 }

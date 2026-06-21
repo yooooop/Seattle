@@ -21,3 +21,25 @@ void UHealthBarWidget::SetHealthPercent(float InPercent)
         HealthBar->SetPercent(Clamped);
     }
 }
+
+void UHealthBarWidget::SetIsOpponent(bool bOpponent)
+{
+    bIsOpponent = bOpponent;
+
+    // Set bar color: green for player, red for opponent
+    if (HealthBar)
+    {
+        const FLinearColor BarColor = bIsOpponent ? FLinearColor(1.f, 0.f, 0.f, 1.f) : FLinearColor(0.f, 1.f, 0.f, 1.f);
+        HealthBar->SetFillColorAndOpacity(BarColor);
+    }
+
+    // Show/hide left/right icons depending on role
+    if (LeftIconImage)
+    {
+        LeftIconImage->SetVisibility(bIsOpponent ? ESlateVisibility::Collapsed : ESlateVisibility::Visible);
+    }
+    if (RightIconImage)
+    {
+        RightIconImage->SetVisibility(bIsOpponent ? ESlateVisibility::Visible : ESlateVisibility::Collapsed);
+    }
+}

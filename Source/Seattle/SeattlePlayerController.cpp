@@ -17,8 +17,10 @@
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "TimerManager.h"
 #include "SeattleAIController.h"
+#include "SeattleAI.h"
 #include "SeattleGameMode.h"
 #include "UI/SeattleHUD.h"
+#include "EngineUtils.h"
 
 ASeattlePlayerController::ASeattlePlayerController()
 {
@@ -100,6 +102,102 @@ void ASeattlePlayerController::Client_StartGame_Implementation()
 		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
 		{
 			HUD->HideMainMenu();
+		}
+	}
+}
+
+bool ASeattlePlayerController::Server_NotifyEndGame_Validate()
+{
+	return true;
+}
+
+void ASeattlePlayerController::Server_NotifyEndGame_Implementation()
+{
+	UE_LOG(LogSeattle, Log, TEXT("Server_NotifyEndGame_Implementation: received from %s"), *GetNameSafe(this));
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Mark game as ended on server
+	ASeattleGameMode* GM = World->GetAuthGameMode<ASeattleGameMode>();
+	if (GM)
+	{
+		GM->SetGameStarted(false);
+	}
+
+	// Stop all AI controllers on server
+	for (FConstControllerIterator It = World->GetControllerIterator(); It; ++It)
+	{
+		AController* C = It->Get();
+		if (!C)
+		{
+			continue;
+		}
+
+		if (ASeattleAIController* SAI = Cast<ASeattleAIController>(C))
+		{
+			if (SAI->GetLocalRole() == ROLE_Authority)
+			{
+				UE_LOG(LogSeattle, Log, TEXT("Server_NotifyEndGame: Stopping AI %s"), *GetNameSafe(SAI));
+				SAI->StopAI();
+			}
+		}
+	}
+
+	// Find a downed actor to focus on: prefer player characters, then combat characters, then AI
+	AActor* DownedActor = nullptr;
+
+	for (TActorIterator<ASeattleCharacter> It(World); It; ++It)
+	{
+		if (ASeattleCharacter* SC = *It)
+		{
+			if (SC->Health <= 0.f)
+			{
+				DownedActor = SC;
+				break;
+			}
+		}
+	}
+
+	if (!DownedActor)
+	{
+		for (TActorIterator<ASeattleAI> It(World); It; ++It)
+		{
+			if (ASeattleAI* AI = *It)
+			{
+				if (AI->GetHealthPercent() <= 0.f)
+				{
+					DownedActor = AI;
+					break;
+				}
+			}
+		}
+	}
+
+	// Notify all player controllers to start end sequence UI with the chosen downed actor (may be null)
+	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (APlayerController* PC = It->Get())
+		{
+			if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
+			{
+				SPC->Client_StartEndSequence(DownedActor);
+			}
+		}
+	}
+}
+
+void ASeattlePlayerController::Client_StartEndSequence_Implementation(AActor* DownedActor)
+{
+	UE_LOG(LogSeattle, Log, TEXT("Client_StartEndSequence_Implementation: running on %s DownedActor=%s"), *GetNameSafe(this), DownedActor ? *GetNameSafe(DownedActor) : TEXT("null"));
+	if (APlayerController* PC = Cast<APlayerController>(this))
+	{
+		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
+		{
+			HUD->StartEndSequence(DownedActor);
 		}
 	}
 }

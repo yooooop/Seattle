@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
 #include "CombatAttacker.h"
+#include "Variant_Combat/Interfaces/CombatDamageable.h"
 #include "SeattleCharacter.generated.h"
 
 class USpringArmComponent;
@@ -16,7 +17,9 @@ struct FInputActionValue;
 class APlayerController;
 class AImpactFXActor;
 
-DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
+class UCameraShakeBase;
+
+DECLARE_MULTICAST_DELEGATE_TwoParams(FSeattlePlayerHealthChangedSignature, float, float);
 
 UENUM(BlueprintType)
 enum class ESeattleInputContributor : uint8
@@ -39,9 +42,46 @@ enum class ESeattleAttackType : uint8
  *  Implements a controllable orbiting camera
  */
 UCLASS(abstract)
-class ASeattleCharacter : public ACharacter, public ICombatAttacker
+class ASeattleCharacter : public ACharacter, public ICombatAttacker, public ICombatDamageable
 {
 	GENERATED_BODY()
+
+public:
+	/** Current health for player character */
+	UPROPERTY(ReplicatedUsing=OnRep_Health, BlueprintReadWrite, EditAnywhere, Category = "Health")
+	float Health = 100.f;
+
+	/** Max health */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
+	float MaxHealth = 100.f;
+
+	/** Spawned impact FX class used when AI hits player (assign in BP) */
+	UPROPERTY(EditDefaultsOnly, Category = "VFX")
+	TSubclassOf<class AImpactFXActor> ImpactFXActorAIHitClass;
+
+	/** Camera shake to play when player is hit (assign in BP) */
+	UPROPERTY(EditDefaultsOnly, Category = "VFX")
+	TSubclassOf<class UCameraShakeBase> HitCameraShakeClass;
+
+	/** Returns current health percent (0..1) */
+	UFUNCTION(BlueprintCallable, Category = "Health")
+	float GetHealthPercent() const;
+
+	// ICombatDamageable
+	virtual void ApplyDamage(float Damage, AActor* DamageCauser, const FVector& DamageLocation, const FVector& DamageImpulse) override;
+	virtual void HandleDeath() override;
+	virtual void ApplyHealing(float Healing, AActor* Healer) override;
+	virtual void NotifyDanger(const FVector& DangerLocation, AActor* DangerSource) override;
+
+	UFUNCTION()
+	void OnRep_Health();
+
+    /** Health changed delegate (C++ only) */
+	FSeattlePlayerHealthChangedSignature OnHealthChanged;
+
+	/** Client-side effects when damaged (camera shake, local FX) */
+	UFUNCTION(Client, Unreliable)
+	void Client_PlayHitEffects();
 
 	/** Camera boom positioning the camera behind the character */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
@@ -299,6 +339,9 @@ public:
 
 	UFUNCTION(NetMulticast, Unreliable)
 	void Multicast_SpawnImpactFX(FVector Location);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void Multicast_SpawnImpactFXClass(TSubclassOf<AImpactFXActor> FXClass, FVector Location);
 
 	/** Melee attack tuning (used by player controller to request server melee) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
