@@ -2,7 +2,9 @@
 
 #include "SeattleCharacter.h"
 #include "Engine/LocalPlayer.h"
+#include "Kismet/GameplayStatics.h"
 #include "Camera/CameraComponent.h"
+#include "UI/SeattleHUD.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
@@ -81,8 +83,15 @@ void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(UseClass, Location, FRotator::ZeroRotator, Params);
-	(void)FX;
+    AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(UseClass, Location, FRotator::ZeroRotator, Params);
+	if (FX)
+	{
+		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFXClass: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *Location.ToString(), *GetNameSafe(UseClass->GetDefaultObject()));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFXClass: Failed to spawn FX class %s at %s"), *GetNameSafe(UseClass->GetDefaultObject()), *Location.ToString());
+	}
 }
 
 float ASeattleCharacter::GetHealthPercent() const
@@ -140,11 +149,130 @@ void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FV
 	OnHealthChanged.Broadcast(Health, HealthDelta);
 
 	// Trigger client-side effects on the owning client
-	Client_PlayHitEffects();
-
-	if (Health <= 0.f && Previous > 0.f)
+	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
+		if (ASeattlePlayerController* PC = Cast<ASeattlePlayerController>(It->Get()))
+		{
+			PC->Client_PlayHitEffects(HitCameraShakeClass);
+		}
+	}
+
+    if (Health <= 0.f && Previous > 0.f)
+	{
+		// Enter knocked-down state and notify clients
+		bIsKnockedDown = true;
+		OnRep_bIsKnockedDown();
 		HandleDeath();
+	}
+}
+
+void ASeattleCharacter::OnRep_bIsKnockedDown()
+{
+	UE_LOG(LogSeattle, Log, TEXT("ASeattleCharacter::OnRep_bIsKnockedDown: %s bIsKnockedDown=%d"), *GetNameSafe(this), bIsKnockedDown ? 1 : 0);
+	// Blueprint / AnimGraph can bind to this replicated property or implement logic in BP on replication.
+}
+
+void ASeattleCharacter::RequestSlide(FVector Direction)
+{
+	if (bIsKnockedDown)
+	{
+		return;
+	}
+
+	if (HasAuthority())
+	{
+		DoSlide(Direction);
+	}
+	else
+	{
+        UE_LOG(LogSeattle, Log, TEXT("RequestSlide: sending Server_RequestSlide from %s dir=%s"), *GetNameSafe(this), *Direction.ToString());
+		Server_RequestSlide(Direction);
+	}
+}
+
+bool ASeattleCharacter::Server_RequestSlide_Validate(FVector Direction)
+{
+	return true;
+}
+
+void ASeattleCharacter::Server_RequestSlide_Implementation(FVector Direction)
+{
+	if (bIsKnockedDown)
+	{
+		return;
+	}
+    UE_LOG(LogSeattle, Log, TEXT("Server_RequestSlide_Implementation: received on server for %s dir=%s"), *GetNameSafe(this), *Direction.ToString());
+	DoSlide(Direction);
+}
+
+void ASeattleCharacter::DoSlide(FVector Direction)
+{
+	if (!Controller)
+	{
+		Controller = GetController();
+	}
+
+	if (Direction.IsNearlyZero())
+	{
+		return;
+	}
+
+	const FVector DirNorm = Direction.GetSafeNormal();
+	// desired speed to cover SlideDistance within SlideDuration
+	const float Speed = (SlideDuration > 0.f) ? (SlideDistance / SlideDuration) : SlideDistance;
+	const FVector Velocity = DirNorm * Speed;
+
+	LaunchCharacter(Velocity, true, true);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("Character=%s Owner=%s LocalRole=%d RemoteRole=%d"),
+		*GetName(),
+		*GetNameSafe(GetOwner()),
+		(int32)GetLocalRole(),
+		(int32)GetRemoteRole());
+
+	// Trigger client-side overlay/effects on owner
+    UE_LOG(LogSeattle, Log, TEXT("DoSlide: Executing slide for %s dir=%s distance=%f duration=%f"), *GetNameSafe(this), *Direction.ToString(), SlideDistance, SlideDuration);
+	if (HasAuthority())
+	{
+		for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
+		{
+			if (ASeattlePlayerController* PC = Cast<ASeattlePlayerController>(It->Get()))
+			{
+				PC->Client_StartSlideOverlay(SlideDuration);
+			}
+		}
+	}
+	//Client_PlaySlideEffects(SlideDuration);
+}
+
+void ASeattleCharacter::Client_PlaySlideEffects_Implementation(float Duration)
+{
+	APlayerController* LocalPC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("Client_PlaySlideEffects on %s"),
+		GIsServer ? TEXT("SERVER") : TEXT("CLIENT"));
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("LocalPC = %s"),
+		*GetNameSafe(LocalPC));
+
+	UE_LOG(LogTemp, Warning,
+		TEXT("Character Owner = %s"),
+		*GetNameSafe(GetOwner()));
+
+	if (LocalPC)
+	{
+		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(LocalPC->GetHUD()))
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HUD FOUND"));
+			HUD->StartSlideOverlay(Duration);
+		}
+		else
+		{
+			UE_LOG(LogTemp, Warning, TEXT("HUD NOT FOUND"));
+		}
 	}
 }
 
@@ -173,13 +301,31 @@ void ASeattleCharacter::OnRep_Health()
 
 void ASeattleCharacter::Client_PlayHitEffects_Implementation()
 {
-	// Play camera shake on owning client
-	APlayerController* PC = Cast<APlayerController>(GetController());
-	if (PC && HitCameraShakeClass)
+    // Play camera shake on owning client
+	APlayerController* LocalPC = nullptr;
+	if (GetWorld())
 	{
-		PC->ClientStartCameraShake(HitCameraShakeClass);
+		LocalPC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
 	}
-	// Could also play local-only VFX here if desired
+
+	if (LocalPC && HitCameraShakeClass)
+	{
+		LocalPC->ClientStartCameraShake(HitCameraShakeClass);
+	}
+
+	// Also trigger HUD damage overlay on the owning client
+	if (LocalPC)
+	{
+		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(LocalPC->GetHUD()))
+		{
+			UE_LOG(LogSeattle, Log, TEXT("Client_PlayHitEffects_Implementation: triggering damage overlay on %s"), *GetNameSafe(LocalPC));
+			HUD->StartDamageOverlay();
+		}
+		else
+		{
+			UE_LOG(LogSeattle, Warning, TEXT("Client_PlayHitEffects_Implementation: HUD not found on controller %s"), *GetNameSafe(LocalPC));
+		}
+	}
 }
 
 
@@ -200,8 +346,15 @@ void ASeattleCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, Location, FRotator::ZeroRotator, Params);
-	(void)FX;
+    AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, Location, FRotator::ZeroRotator, Params);
+	if (FX)
+	{
+		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFX: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *Location.ToString(), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()));
+	}
+	else
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: Failed to spawn FX class %s at %s"), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()), *Location.ToString());
+	}
 }
 
 void ASeattleCharacter::PlayMontageForAttack(bool bRightSide, ESeattleAttackType AttackType)
@@ -982,4 +1135,5 @@ void ASeattleCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME(ASeattleCharacter, ActiveAttackType);
     DOREPLIFETIME(ASeattleCharacter, ReplicatedAimRotation);
     DOREPLIFETIME(ASeattleCharacter, Health);
+    DOREPLIFETIME(ASeattleCharacter, bIsKnockedDown);
 }

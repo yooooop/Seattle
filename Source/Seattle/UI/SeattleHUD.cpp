@@ -1,5 +1,7 @@
 #include "SeattleHUD.h"
+#include "SeattleHUD.h"
 #include "Blueprint/UserWidget.h"
+#include "Seattle.h"
 #include "MainMenuWidget.h"
 #include "EndScreenWidget.h"
 #include "HealthBarWidget.h"
@@ -21,6 +23,81 @@ ASeattleHUD::ASeattleHUD()
 {
 }
 
+void ASeattleHUD::StartSlideOverlay(float Duration)
+{
+    if (!SlideOverlayWidget || SlideOverlayPhase != ESlideOverlayPhase::Idle)
+    {
+        return;
+    }
+
+    SlideOverlayPhase = ESlideOverlayPhase::FadingIn;
+    SlideOverlayElapsed = 0.f;
+    SlideOverlayWidget->SetVisibility(ESlateVisibility::Visible);
+    SlideOverlayWidget->SetRenderOpacity(0.f);
+
+    // we'll hold the overlay for Duration seconds at full opacity
+    // store Duration in DamageHoldTime temporarily by reusing SlideOverlayElapsed? Simpler: store in local timer via lambda
+    const float HoldDuration = Duration;
+
+    GetWorldTimerManager().SetTimer(SlideOverlayTimerHandle, [this, HoldDuration]() {
+        // tick every frame-ish
+        if (GetWorld())
+        {
+            UpdateSlideOverlay(GetWorld()->GetDeltaSeconds());
+        }
+    }, 0.033f, true);
+
+    // Save hold duration in SlideOverlayElapsed negative to indicate target? Simpler: store as a property via SlideOverlayElapsedWhilstHeld
+    // We'll store HoldDuration in DamageHoldTime temporarily (not ideal) but add a local field instead. For now, reuse DamageHoldTime as generic hold time is ok.
+    DamageHoldTime = HoldDuration;
+}
+
+void ASeattleHUD::UpdateSlideOverlay(float DeltaTime)
+{
+    if (!SlideOverlayWidget)
+    {
+        return;
+    }
+
+    SlideOverlayElapsed += DeltaTime;
+    switch (SlideOverlayPhase)
+    {
+    case ESlideOverlayPhase::FadingIn:
+    {
+        const float Alpha = FMath::Clamp(SlideOverlayElapsed / 0.08f, 0.f, 1.f);
+        SlideOverlayWidget->SetRenderOpacity(Alpha);
+        if (Alpha >= 1.f)
+        {
+            SlideOverlayPhase = ESlideOverlayPhase::Holding;
+            SlideOverlayElapsed = 0.f;
+        }
+        break;
+    }
+    case ESlideOverlayPhase::Holding:
+        if (SlideOverlayElapsed >= DamageHoldTime)
+        {
+            SlideOverlayPhase = ESlideOverlayPhase::FadingOut;
+            SlideOverlayElapsed = 0.f;
+        }
+        break;
+    case ESlideOverlayPhase::FadingOut:
+    {
+        const float Alpha = 1.f - FMath::Clamp(SlideOverlayElapsed / 0.25f, 0.f, 1.f);
+        SlideOverlayWidget->SetRenderOpacity(Alpha);
+        if (Alpha <= 0.f)
+        {
+            SlideOverlayPhase = ESlideOverlayPhase::Idle;
+            SlideOverlayElapsed = 0.f;
+            SlideOverlayWidget->SetVisibility(ESlateVisibility::Collapsed);
+            GetWorldTimerManager().ClearTimer(SlideOverlayTimerHandle);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 void ASeattleHUD::StartEndSequence(AActor* DownedActor)
 {
     if (!DownedActor || bEndSequenceActive)
@@ -38,6 +115,7 @@ void ASeattleHUD::StartEndSequence(AActor* DownedActor)
             FoundCapture = *It;
             break;
         }
+
     }
 
     if (!FoundCapture)
@@ -86,6 +164,74 @@ void ASeattleHUD::StartEndSequence(AActor* DownedActor)
             UpdateEndSequence(GetWorld()->GetDeltaSeconds());
         }
     }, 0.1f, true);
+}
+
+void ASeattleHUD::StartDamageOverlay()
+{
+    if (!DamageOverlayWidget || DamageOverlayPhase != EDamageOverlayPhase::Idle)
+    {
+        return;
+    }
+
+    DamageOverlayPhase = EDamageOverlayPhase::FadingIn;
+    DamageOverlayElapsed = 0.f;
+    DamageOverlayWidget->SetVisibility(ESlateVisibility::Visible);
+    DamageOverlayWidget->SetRenderOpacity(0.f);
+
+    // Tick the overlay quickly to animate fade in/out
+    GetWorldTimerManager().SetTimer(DamageOverlayTimerHandle, [this]() {
+        if (GetWorld())
+        {
+            UpdateDamageOverlay(GetWorld()->GetDeltaSeconds());
+        }
+    }, 0.033f, true);
+}
+
+void ASeattleHUD::UpdateDamageOverlay(float DeltaTime)
+{
+    if (!DamageOverlayWidget)
+    {
+        return;
+    }
+
+    DamageOverlayElapsed += DeltaTime;
+    switch (DamageOverlayPhase)
+    {
+    case EDamageOverlayPhase::FadingIn:
+    {
+        const float Alpha = FMath::Clamp(DamageOverlayElapsed / DamageFadeInTime, 0.f, 1.f);
+        DamageOverlayWidget->SetRenderOpacity(Alpha);
+        if (Alpha >= 1.f)
+        {
+            // move to hold
+            DamageOverlayPhase = EDamageOverlayPhase::Holding;
+            DamageOverlayElapsed = 0.f;
+        }
+        break;
+    }
+    case EDamageOverlayPhase::Holding:
+        if (DamageOverlayElapsed >= DamageHoldTime)
+        {
+            DamageOverlayPhase = EDamageOverlayPhase::FadingOut;
+            DamageOverlayElapsed = 0.f;
+        }
+        break;
+    case EDamageOverlayPhase::FadingOut:
+    {
+        const float Alpha = 1.f - FMath::Clamp(DamageOverlayElapsed / DamageFadeOutTime, 0.f, 1.f);
+        DamageOverlayWidget->SetRenderOpacity(Alpha);
+        if (Alpha <= 0.f)
+        {
+            DamageOverlayPhase = EDamageOverlayPhase::Idle;
+            DamageOverlayElapsed = 0.f;
+            DamageOverlayWidget->SetVisibility(ESlateVisibility::Collapsed);
+            GetWorldTimerManager().ClearTimer(DamageOverlayTimerHandle);
+        }
+        break;
+    }
+    default:
+        break;
+    }
 }
 
 void ASeattleHUD::UpdateEndSequence(float DeltaTime)
@@ -159,7 +305,12 @@ void ASeattleHUD::BeginPlay()
 {
     Super::BeginPlay();
 
-    APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+    APlayerController* PC = GetOwningPlayerController();
+    // Fallback: if HUD isn't owned yet, try the first local player controller (works on clients)
+    if (!PC)
+    {
+        PC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+    }
     if (MainMenuWidgetClass)
     {
         if (PC)
@@ -239,6 +390,56 @@ void ASeattleHUD::BeginPlay()
             EndScreenWidget = CreateWidget<UEndScreenWidget>(GetWorld(), EndScreenWidgetClass);
         }
     }
+
+    // create damage overlay widget (hidden) for this local HUD
+    if (DamageOverlayClass)
+    {
+        if (PC)
+        {
+            DamageOverlayWidget = CreateWidget<UUserWidget>(PC, DamageOverlayClass);
+        }
+        else
+        {
+            DamageOverlayWidget = CreateWidget<UUserWidget>(GetWorld(), DamageOverlayClass);
+        }
+
+        if (DamageOverlayWidget)
+        {
+            DamageOverlayWidget->AddToViewport(50);
+            DamageOverlayWidget->SetVisibility(ESlateVisibility::Collapsed);
+            DamageOverlayWidget->SetRenderOpacity(0.f);
+            UE_LOG(LogSeattle, Log, TEXT("ASeattleHUD::BeginPlay - Created DamageOverlayWidget for %s"), *GetNameSafe(PC));
+        }
+        else
+        {
+            UE_LOG(LogSeattle, Warning, TEXT("ASeattleHUD::BeginPlay - Failed to create DamageOverlayWidget for %s"), *GetNameSafe(PC));
+        }
+    }
+
+    // create slide overlay widget (hidden) for this local HUD
+    if (SlideOverlayClass)
+    {
+        if (PC)
+        {
+            SlideOverlayWidget = CreateWidget<UUserWidget>(PC, SlideOverlayClass);
+        }
+        else
+        {
+            SlideOverlayWidget = CreateWidget<UUserWidget>(GetWorld(), SlideOverlayClass);
+        }
+
+        if (SlideOverlayWidget)
+        {
+            SlideOverlayWidget->AddToViewport(51);
+            SlideOverlayWidget->SetVisibility(ESlateVisibility::Collapsed);
+            SlideOverlayWidget->SetRenderOpacity(0.f);
+            UE_LOG(LogSeattle, Log, TEXT("ASeattleHUD::BeginPlay - Created SlideOverlayWidget for %s"), *GetNameSafe(PC));
+        }
+        else
+        {
+            UE_LOG(LogSeattle, Warning, TEXT("ASeattleHUD::BeginPlay - Failed to create SlideOverlayWidget for %s"), *GetNameSafe(PC));
+        }
+    }
 }
 
 void ASeattleHUD::ShowMainMenu()
@@ -259,7 +460,7 @@ void ASeattleHUD::HideMainMenu()
     }
 
     // restore game input and hide cursor
-    if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+    if (APlayerController* PC = GetOwningPlayerController())
     {
         PC->bShowMouseCursor = false;
         FInputModeGameOnly GameInput;
@@ -335,7 +536,7 @@ void ASeattleHUD::ShowInGameUI()
     // start polling for health values to keep HUD updated
     // Subscribe to player health changes instead of polling
     // Prefer binding to the local player's possessed pawn or the shared character pawn (handles shared-pawn/co-op setups reliably)
-    APlayerController* LocalPC = UGameplayStatics::GetPlayerController(GetWorld(), 0);
+    APlayerController* LocalPC = GetOwningPlayerController();
     APawn* PlayerPawn = nullptr;
     if (LocalPC)
     {
@@ -426,6 +627,20 @@ void ASeattleHUD::OnPlayerHealthChanged(float NewHealth, float HealthDelta)
         const float Percent = SC->GetHealthPercent();
         UpdatePlayerHealth(Percent);
 
+        // show damage overlay and play camera shake when damaged (HealthDelta > 0)
+        if (HealthDelta > 0.f)
+        {
+            StartDamageOverlay();
+
+            if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+            {
+                if (PC->PlayerCameraManager && SC->HitCameraShakeClass)
+                {
+                    PC->PlayerCameraManager->StartCameraShake(SC->HitCameraShakeClass);
+                }
+            }
+        }
+
         if (NewHealth <= 0.f && !bEndScreenShown)
         {
             bEndScreenShown = true;
@@ -449,6 +664,19 @@ void ASeattleHUD::OnPlayerHealthChanged(float NewHealth, float HealthDelta)
     {
         const float Percent = CC->GetHealthPercent();
         UpdatePlayerHealth(Percent);
+
+        // CombatCharacter's OnHealthChanged uses positive delta for damage as well
+        if (HealthDelta > 0.f)
+        {
+            StartDamageOverlay();
+            if (APlayerController* PC = UGameplayStatics::GetPlayerController(GetWorld(), 0))
+            {
+                if (PC->PlayerCameraManager && CC->HitCameraShakeClass)
+                {
+                    PC->PlayerCameraManager->StartCameraShake(CC->HitCameraShakeClass);
+                }
+            }
+        }
 
         if (NewHealth <= 0.f && !bEndScreenShown)
         {

@@ -34,6 +34,14 @@ public:
     UFUNCTION(BlueprintCallable, Category="UI")
     void ShowInGameUI();
 
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void StartDamageOverlay();
+
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void StartSlideOverlay(float Duration);
+
+
+
     /** Handler for player health changes (bound to player delegate) */
     UFUNCTION()
     void OnPlayerHealthChanged(float NewHealth, float HealthDelta);
@@ -56,6 +64,14 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, Category="UI")
     TSubclassOf<UUserWidget> HealthBarWidgetClass;
+
+    /** Damage overlay widget shown when player is hit (fade in/out) */
+    UPROPERTY(EditDefaultsOnly, Category="UI")
+    TSubclassOf<UUserWidget> DamageOverlayClass;
+
+    /** Slide overlay widget shown during slide (blur) */
+    UPROPERTY(EditDefaultsOnly, Category="UI")
+    TSubclassOf<UUserWidget> SlideOverlayClass;
 
     UPROPERTY(EditDefaultsOnly, Category="UI")
     TSubclassOf<UUserWidget> GeneralInGameWidgetClass;
@@ -138,6 +154,38 @@ private:
     UPROPERTY(EditDefaultsOnly, Category = "EndSequence")
     float EndSeqEndFOV = 90.f;
     bool bEndScreenShown = false;
+
+    // Damage overlay state
+    UPROPERTY()
+    UUserWidget* DamageOverlayWidget = nullptr;
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+    float DamageFadeInTime = 0.1f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+    float DamageHoldTime = 0.2f;
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+    float DamageFadeOutTime = 0.8f;
+
+    FTimerHandle DamageOverlayTimerHandle;
+    float DamageOverlayElapsed = 0.f;
+    enum class EDamageOverlayPhase : uint8 { Idle, FadingIn, Holding, FadingOut };
+    EDamageOverlayPhase DamageOverlayPhase = EDamageOverlayPhase::Idle;
+
+    void UpdateDamageOverlay(float DeltaTime);
+
+    // Slide overlay
+    UPROPERTY()
+    UUserWidget* SlideOverlayWidget = nullptr;
+
+    FTimerHandle SlideOverlayTimerHandle;
+    float SlideOverlayElapsed = 0.f;
+    enum class ESlideOverlayPhase : uint8 { Idle, FadingIn, Holding, FadingOut };
+    ESlideOverlayPhase SlideOverlayPhase = ESlideOverlayPhase::Idle;
+
+    // StartSlideOverlay declared public above
+    void UpdateSlideOverlay(float DeltaTime);
 
     /** Called after fade-out completes to return to main menu */
     void OnEndSequenceFinished();

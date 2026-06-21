@@ -40,15 +40,30 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_RequestStartGame();
 
+	/** Server notifies all clients and stops AI when end-game occurs */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_NotifyEndGame();
+
 	/** Server calls this on clients to instruct them to hide their main menu/start the game */
 	UFUNCTION(Client, Reliable)
 	void Client_StartGame();
 
-    /** Server notifies all clients and stops AI when end-game occurs */
-	UFUNCTION(Server, Reliable, WithValidation)
-	void Server_NotifyEndGame();
+	/** Client RPC: pan the scene capture actor to the given location/rotation over Duration seconds */
+	UFUNCTION(Client, Reliable)
+	void Client_PanSceneCapture(FVector TargetLocation, FRotator TargetRotation, float Duration);
 
-	/** Client RPC to start the end-sequence UI locally */
+protected:
+	// Pan state for scene capture on client
+	FVector PanStartLocation;
+	FRotator PanStartRotation;
+	FVector PanTargetLocation;
+	FRotator PanTargetRotation;
+	float PanDuration = 0.f;
+	float PanElapsed = 0.f;
+	FTimerHandle PanTimerHandle;
+	void UpdatePanSceneCapture();
+
+    /** Client RPC to start the end-sequence UI locally */
 	UFUNCTION(Client, Reliable)
 	void Client_StartEndSequence(AActor* DownedActor);
 
@@ -271,4 +286,10 @@ public:
 	void SendSharedLookInput(FVector2D LookInput);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+	UFUNCTION(Client, Reliable)
+	void Client_StartSlideOverlay(float Duration);
+
+	UFUNCTION(Client, Reliable)
+	void Client_PlayHitEffects(TSubclassOf<UCameraShakeBase> CameraShakeClass);
 };

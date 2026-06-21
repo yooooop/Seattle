@@ -76,15 +76,35 @@ void ASeattleAI::DoAttackTrace(FName DamageSourceBone)
 			if (!HitActor) continue;
 
 			// Prefer generic combat damageable interface
-			if (ICombatDamageable* Damageable = Cast<ICombatDamageable>(HitActor))
+            if (ICombatDamageable* Damageable = Cast<ICombatDamageable>(HitActor))
 			{
-				UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace: Applying %.1f damage to %s"), *GetName(), MeleeDamage, *GetNameSafe(HitActor));
-				Damageable->ApplyDamage(MeleeDamage, this, Hit.ImpactPoint, FVector::ZeroVector);
+                // Determine a good spawn location for impact FX: prefer the hit component's bone/socket location if available
+				FVector SpawnLoc = Hit.ImpactPoint;
+				if (Hit.BoneName != NAME_None && Hit.Component.IsValid())
+				{
+					if (USkeletalMeshComponent* TargetSkel = Cast<USkeletalMeshComponent>(Hit.Component.Get()))
+					{
+						// GetSocketLocation will return bone location for skeletal mesh components as well
+						SpawnLoc = TargetSkel->GetSocketLocation(Hit.BoneName);
+					}
+				}
+
+                UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace: Applying %.1f damage to %s at %s (impactpoint=%s bone=%s comp=%s)"), *GetName(), MeleeDamage, *GetNameSafe(HitActor), *SpawnLoc.ToString(), *Hit.ImpactPoint.ToString(), *Hit.BoneName.ToString(), Hit.Component.IsValid() ? *Hit.Component->GetName() : TEXT("null"));
+				Damageable->ApplyDamage(MeleeDamage, this, SpawnLoc, FVector::ZeroVector);
 			}
 			else if (ASeattleCharacter* Char = Cast<ASeattleCharacter>(HitActor))
 			{
-				UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace: Applying %.1f damage to SeattleCharacter %s"), *GetName(), MeleeDamage, *GetNameSafe(Char));
-				Char->ApplyDamage(MeleeDamage, this, Hit.ImpactPoint, FVector::ZeroVector);
+                FVector SpawnLoc = Hit.ImpactPoint;
+				if (Hit.BoneName != NAME_None && Hit.Component.IsValid())
+				{
+					if (USkeletalMeshComponent* TargetSkel = Cast<USkeletalMeshComponent>(Hit.Component.Get()))
+					{
+						SpawnLoc = TargetSkel->GetSocketLocation(Hit.BoneName);
+					}
+				}
+
+                UE_LOG(LogSeattle, Log, TEXT("%s DoAttackTrace: Applying %.1f damage to SeattleCharacter %s at %s (impactpoint=%s bone=%s comp=%s)"), *GetName(), MeleeDamage, *GetNameSafe(Char), *SpawnLoc.ToString(), *Hit.ImpactPoint.ToString(), *Hit.BoneName.ToString(), Hit.Component.IsValid() ? *Hit.Component->GetName() : TEXT("null"));
+				Char->ApplyDamage(MeleeDamage, this, SpawnLoc, FVector::ZeroVector);
 			}
 
 			if (GEngine)

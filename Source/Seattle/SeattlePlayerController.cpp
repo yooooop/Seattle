@@ -21,6 +21,8 @@
 #include "SeattleGameMode.h"
 #include "UI/SeattleHUD.h"
 #include "EngineUtils.h"
+#include "Engine/SceneCapture2D.h"
+#include "GameFramework/SpringArmComponent.h"
 
 ASeattlePlayerController::ASeattlePlayerController()
 {
@@ -58,40 +60,104 @@ void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 		return;
 	}
 
-	// mark started
-	GM->SetGameStarted(true);
+    // Instead of immediately starting the match, pan a scene capture actor to the player's camera
+	// and then start the match after the pan duration so clients see a smooth transition.
 
-	// Notify all player controllers (client-side) to hide main menu
+	// Find the player pawn to derive the target location/rotation for the capture
+	ASeattleCharacter* PawnChar = ResolveSharedCharacterPawn();
+	if (!PawnChar)
+	{
+		PawnChar = Cast<ASeattleCharacter>(GetPawn());
+	}
+
+    // Default pan duration
+	const float LocalPanDuration = 1.0f;
+
+	FVector TargetLocation = FVector::ZeroVector;
+	FRotator TargetRotation = FRotator::ZeroRotator;
+
+	if (PawnChar)
+	{
+        if (PawnChar->FollowCamera)
+		{
+			TargetLocation = PawnChar->FollowCamera->GetComponentLocation();
+		}
+		else if (PawnChar->CameraBoom)
+		{
+			TargetLocation = PawnChar->CameraBoom->GetComponentLocation();
+		}
+		else
+		{
+			TargetLocation = PawnChar->GetActorLocation() + FVector(0.f, 0.f, 200.f);
+		}
+
+		TargetRotation = (PawnChar->GetActorLocation() - TargetLocation).Rotation();
+	}
+
+	// Tell all clients to pan their scene capture to this target
 	for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
 	{
 		if (APlayerController* PC = It->Get())
 		{
 			if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
 			{
-				SPC->Client_StartGame();
+                UE_LOG(LogSeattle, Log, TEXT("Server_RequestStartGame: Sending Client_PanSceneCapture to %s target=%s rot=%s dur=%f"), *GetNameSafe(SPC), *TargetLocation.ToString(), *TargetRotation.ToString(), LocalPanDuration);
+				SPC->Client_PanSceneCapture(TargetLocation, TargetRotation, LocalPanDuration);
 			}
 		}
 	}
 
-	// Start AI logic for all AI controllers now that the match has started
-	for (FConstControllerIterator It = World->GetControllerIterator(); It; ++It)
-	{
-		AController* C = It->Get();
-		if (!C)
+    // Set a server timer to start the game after the pan completes
+	GetWorldTimerManager().SetTimerForNextTick([this, LocalPanDuration]() {
+		if (UWorld* World2 = GetWorld())
 		{
-			continue;
+			World2->GetTimerManager().SetTimerForNextTick([this]() { /* no-op to force next tick */ });
+		}
+	});
+
+	// Use a real timer to wait PanDuration then start the match
+	GetWorldTimerManager().SetTimer(AimReplicationTimerHandle, [World, this]() {
+		// mark started
+		ASeattleGameMode* GM2 = World->GetAuthGameMode<ASeattleGameMode>();
+		if (GM2)
+		{
+			GM2->SetGameStarted(true);
 		}
 
-		// Seattle AI controller
-		if (ASeattleAIController* SAI = Cast<ASeattleAIController>(C))
+		// Notify all player controllers (client-side) to hide main menu
+		for (FConstPlayerControllerIterator It2 = World->GetPlayerControllerIterator(); It2; ++It2)
 		{
-			if (SAI->GetLocalRole() == ROLE_Authority)
+			if (APlayerController* PC2 = It2->Get())
 			{
-				UE_LOG(LogSeattle, Log, TEXT("Starting AI on %s"), *GetNameSafe(SAI));
-				SAI->StartAI();
+				if (ASeattlePlayerController* SPC2 = Cast<ASeattlePlayerController>(PC2))
+				{
+					SPC2->Client_StartGame();
+				}
 			}
 		}
-	}
+
+		// Start AI logic for all AI controllers now that the match has started
+		for (FConstControllerIterator It3 = World->GetControllerIterator(); It3; ++It3)
+		{
+			AController* C = It3->Get();
+			if (!C)
+			{
+				continue;
+			}
+
+			if (ASeattleAIController* SAI = Cast<ASeattleAIController>(C))
+			{
+				if (SAI->GetLocalRole() == ROLE_Authority)
+				{
+					UE_LOG(LogSeattle, Log, TEXT("Starting AI on %s"), *GetNameSafe(SAI));
+					SAI->StartAI();
+				}
+			}
+		}
+
+		// clear the timer handle used
+		GetWorldTimerManager().ClearTimer(AimReplicationTimerHandle);
+	}, PanDuration, false);
 }
 
 void ASeattlePlayerController::Client_StartGame_Implementation()
@@ -103,6 +169,83 @@ void ASeattlePlayerController::Client_StartGame_Implementation()
 		{
 			HUD->HideMainMenu();
 		}
+	}
+}
+
+void ASeattlePlayerController::Client_PanSceneCapture_Implementation(FVector TargetLocation, FRotator TargetRotation, float Duration)
+{
+	UE_LOG(LogSeattle, Log, TEXT("Client_PanSceneCapture_Implementation: target=%s rot=%s dur=%f on %s"), *TargetLocation.ToString(), *TargetRotation.ToString(), Duration, *GetNameSafe(this));
+
+	// Find the scene capture actor in the local world (prefer label StartScreenCaptureCamera, fallback to EndScreenCaptureCamera)
+	ASceneCapture2D* FoundCapture = nullptr;
+	for (TActorIterator<ASceneCapture2D> It(GetWorld()); It; ++It)
+	{
+		if (It->GetActorLabel() == TEXT("StartScreenCaptureCamera") || It->GetActorLabel() == TEXT("EndScreenCaptureCamera"))
+		{
+			FoundCapture = *It;
+			break;
+		}
+	}
+
+    if (!FoundCapture)
+	{
+		UE_LOG(LogSeattle, Warning, TEXT("Client_PanSceneCapture: no scene capture actor found on %s"), *GetNameSafe(this));
+		return;
+	}
+
+	UE_LOG(LogSeattle, Log, TEXT("Client_PanSceneCapture: Found capture %s at %s on %s. Starting pan to %s over %f"), *FoundCapture->GetName(), *FoundCapture->GetActorLocation().ToString(), *GetNameSafe(this), *TargetLocation.ToString(), Duration);
+
+	// store pan state
+	PanStartLocation = FoundCapture->GetActorLocation();
+	PanStartRotation = FoundCapture->GetActorRotation();
+	PanTargetLocation = TargetLocation;
+	PanTargetRotation = TargetRotation;
+	PanDuration = FMath::Max(Duration, 0.001f);
+	PanElapsed = 0.f;
+
+	// clear any existing timer
+	GetWorldTimerManager().ClearTimer(PanTimerHandle);
+
+	// start ticking interpolation
+	const float Interval = 1.0f / 60.0f;
+	GetWorldTimerManager().SetTimer(PanTimerHandle, this, &ASeattlePlayerController::UpdatePanSceneCapture, Interval, true);
+}
+
+void ASeattlePlayerController::UpdatePanSceneCapture()
+{
+	// Find capture actor again
+	ASceneCapture2D* FoundCapture = nullptr;
+	for (TActorIterator<ASceneCapture2D> It(GetWorld()); It; ++It)
+	{
+		if (It->GetActorLabel() == TEXT("StartScreenCaptureCamera") || It->GetActorLabel() == TEXT("EndScreenCaptureCamera"))
+		{
+			FoundCapture = *It;
+			break;
+		}
+	}
+
+	if (!FoundCapture)
+	{
+		GetWorldTimerManager().ClearTimer(PanTimerHandle);
+		return;
+	}
+
+	PanElapsed += 1.0f / 60.0f;
+	const float Alpha = FMath::Clamp(PanElapsed / PanDuration, 0.f, 1.f);
+
+	const FVector NewLoc = FMath::Lerp(PanStartLocation, PanTargetLocation, Alpha);
+	const FQuat StartQ = PanStartRotation.Quaternion();
+	const FQuat EndQ = PanTargetRotation.Quaternion();
+	const FQuat NewQ = FQuat::Slerp(StartQ, EndQ, Alpha);
+	const FRotator NewRot = NewQ.Rotator();
+
+	FoundCapture->SetActorLocation(NewLoc);
+	FoundCapture->SetActorRotation(NewRot);
+
+	if (Alpha >= 1.f)
+	{
+		GetWorldTimerManager().ClearTimer(PanTimerHandle);
+        UE_LOG(LogSeattle, Log, TEXT("Client_PanSceneCapture: Completed pan on %s"), *GetNameSafe(this));
 	}
 }
 
@@ -948,4 +1091,25 @@ void ASeattlePlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProper
 
 	DOREPLIFETIME(ASeattlePlayerController, SharedControlRole);
 	DOREPLIFETIME(ASeattlePlayerController, SharedCharacterPawn);
+}
+
+void ASeattlePlayerController::Client_StartSlideOverlay_Implementation(float Duration)
+{
+	if (ASeattleHUD* HUD = Cast<ASeattleHUD>(GetHUD()))
+	{
+		HUD->StartSlideOverlay(Duration);
+	}
+}
+
+void ASeattlePlayerController::Client_PlayHitEffects_Implementation(TSubclassOf<UCameraShakeBase> CameraShakeClass)
+{
+	if (CameraShakeClass)
+	{
+		ClientStartCameraShake(CameraShakeClass);
+	}
+
+	if (ASeattleHUD* HUD = Cast<ASeattleHUD>(GetHUD()))
+	{
+		HUD->StartDamageOverlay();
+	}
 }

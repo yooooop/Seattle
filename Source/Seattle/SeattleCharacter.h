@@ -83,6 +83,34 @@ public:
 	UFUNCTION(Client, Unreliable)
 	void Client_PlayHitEffects();
 
+	/** Whether this character is knocked down (for anim graph) */
+	UPROPERTY(ReplicatedUsing=OnRep_bIsKnockedDown, BlueprintReadOnly, EditAnywhere, Category = "State")
+	bool bIsKnockedDown = false;
+
+	UFUNCTION()
+	void OnRep_bIsKnockedDown();
+
+	/** Request a slide in a world direction (client calls, server executes) */
+	UFUNCTION(BlueprintCallable, Category = "Movement")
+	void RequestSlide(FVector Direction);
+
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestSlide(FVector Direction);
+
+	/** Execute slide on server (authority) */
+	void DoSlide(FVector Direction);
+
+	/** Client-side slide effects (blur overlay) */
+	UFUNCTION(Client, Reliable)
+	void Client_PlaySlideEffects(float Duration);
+
+	/** Slide tuning */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float SlideDistance = 150.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float SlideDuration = 0.2f;
+
 	/** Camera boom positioning the camera behind the character */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	USpringArmComponent* CameraBoom;
