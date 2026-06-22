@@ -37,6 +37,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI")
 	void StopAI();
 
+	/** Broadcast AI opponent stamina percent to all player HUDs (server-side) */
+	UFUNCTION(BlueprintCallable, Category = "AI")
+	void BroadcastOpponentStamina(float StaminaPercent);
+
 protected:
 	/** Called when the controller possesses a pawn */
 	virtual void OnPossess(APawn* InPawn) override;

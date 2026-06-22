@@ -22,6 +22,8 @@
 #include "UI/SeattleHUD.h"
 #include "EngineUtils.h"
 #include "Engine/SceneCapture2D.h"
+#include "Components/SceneCaptureComponent2D.h"
+#include "StaminaComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 
 ASeattlePlayerController::ASeattlePlayerController()
@@ -33,6 +35,17 @@ ASeattlePlayerController::ASeattlePlayerController()
 	SharedLocalFollowCamera->SetActive(false);
 }
 
+void ASeattlePlayerController::Client_UpdateOpponentStamina_Implementation(float StaminaPercent)
+{
+	if (APlayerController* PC = Cast<APlayerController>(this))
+	{
+		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
+		{
+			HUD->UpdateOpponentStamina(StaminaPercent);
+		}
+	}
+}
+
 bool ASeattlePlayerController::Server_RequestStartGame_Validate()
 {
 	return true;
@@ -40,8 +53,12 @@ bool ASeattlePlayerController::Server_RequestStartGame_Validate()
 
 void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 {
-	UE_LOG(LogSeattle, Log, TEXT("Server_RequestStartGame_Implementation: request from %s"), *GetNameSafe(this));
+    // Delegate to the consolidated handler (runs on server authority)
+	HandleStartGameRequest();
+}
 
+void ASeattlePlayerController::HandleStartGameRequest()
+{
 	UWorld* World = GetWorld();
 	if (!World)
 	{
@@ -56,12 +73,9 @@ void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 
 	if (GM->IsGameStarted())
 	{
-		UE_LOG(LogSeattle, Log, TEXT("Server_RequestStartGame_Implementation: game already started"));
+		UE_LOG(LogSeattle, Log, TEXT("HandleStartGameRequest: game already started"));
 		return;
 	}
-
-    // Instead of immediately starting the match, pan a scene capture actor to the player's camera
-	// and then start the match after the pan duration so clients see a smooth transition.
 
 	// Find the player pawn to derive the target location/rotation for the capture
 	ASeattleCharacter* PawnChar = ResolveSharedCharacterPawn();
@@ -70,7 +84,7 @@ void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 		PawnChar = Cast<ASeattleCharacter>(GetPawn());
 	}
 
-    // Default pan duration
+	// Default pan duration
 	const float LocalPanDuration = 1.0f;
 
 	FVector TargetLocation = FVector::ZeroVector;
@@ -78,20 +92,44 @@ void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 
 	if (PawnChar)
 	{
-        if (PawnChar->FollowCamera)
+		if (PawnChar->FollowCamera)
 		{
 			TargetLocation = PawnChar->FollowCamera->GetComponentLocation();
+			TargetRotation = PawnChar->FollowCamera->GetComponentRotation();
 		}
 		else if (PawnChar->CameraBoom)
 		{
 			TargetLocation = PawnChar->CameraBoom->GetComponentLocation();
+			TargetRotation = PawnChar->CameraBoom->GetComponentRotation();
 		}
 		else
 		{
 			TargetLocation = PawnChar->GetActorLocation() + FVector(0.f, 0.f, 200.f);
+			TargetRotation = (PawnChar->GetActorLocation() - TargetLocation).Rotation();
 		}
+	}
 
-		TargetRotation = (PawnChar->GetActorLocation() - TargetLocation).Rotation();
+	// Immediately hide main menu on all players. For remote clients, invoke the client RPC.
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+	{
+		if (APlayerController* PC = It->Get())
+		{
+			if (PC->IsLocalController())
+			{
+				if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
+				{
+					// Hide menu without re-triggering start flow (we're already in server flow)
+					HUD->HideMainMenu_SuppressStart();
+				}
+			}
+			else
+			{
+				if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
+				{
+					SPC->Client_StartGame();
+				}
+			}
+		}
 	}
 
 	// Tell all clients to pan their scene capture to this target
@@ -101,21 +139,13 @@ void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 		{
 			if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
 			{
-                UE_LOG(LogSeattle, Log, TEXT("Server_RequestStartGame: Sending Client_PanSceneCapture to %s target=%s rot=%s dur=%f"), *GetNameSafe(SPC), *TargetLocation.ToString(), *TargetRotation.ToString(), LocalPanDuration);
+				UE_LOG(LogSeattle, Log, TEXT("HandleStartGameRequest: Sending Client_PanSceneCapture to %s target=%s rot=%s dur=%f"), *GetNameSafe(SPC), *TargetLocation.ToString(), *TargetRotation.ToString(), LocalPanDuration);
 				SPC->Client_PanSceneCapture(TargetLocation, TargetRotation, LocalPanDuration);
 			}
 		}
 	}
 
-    // Set a server timer to start the game after the pan completes
-	GetWorldTimerManager().SetTimerForNextTick([this, LocalPanDuration]() {
-		if (UWorld* World2 = GetWorld())
-		{
-			World2->GetTimerManager().SetTimerForNextTick([this]() { /* no-op to force next tick */ });
-		}
-	});
-
-	// Use a real timer to wait PanDuration then start the match
+	// Use a real timer to wait LocalPanDuration then start the match
 	GetWorldTimerManager().SetTimer(AimReplicationTimerHandle, [World, this]() {
 		// mark started
 		ASeattleGameMode* GM2 = World->GetAuthGameMode<ASeattleGameMode>();
@@ -157,17 +187,18 @@ void ASeattlePlayerController::Server_RequestStartGame_Implementation()
 
 		// clear the timer handle used
 		GetWorldTimerManager().ClearTimer(AimReplicationTimerHandle);
-	}, PanDuration, false);
+	}, LocalPanDuration, false);
 }
 
 void ASeattlePlayerController::Client_StartGame_Implementation()
 {
-	UE_LOG(LogSeattle, Log, TEXT("Client_StartGame_Implementation: running on %s"), *GetNameSafe(this));
+	//UE_LOG(LogSeattle, Log, TEXT("Client_StartGame_Implementation: running on %s"), *GetNameSafe(this));
 	if (APlayerController* PC = Cast<APlayerController>(this))
 	{
-		if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
+        if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
 		{
-			HUD->HideMainMenu();
+			// invoked by server to instruct client to enter game UI; suppress re-requesting server start
+			HUD->HideMainMenu_SuppressStart();
 		}
 	}
 }
@@ -194,6 +225,27 @@ void ASeattlePlayerController::Client_PanSceneCapture_Implementation(FVector Tar
 	}
 
 	UE_LOG(LogSeattle, Log, TEXT("Client_PanSceneCapture: Found capture %s at %s on %s. Starting pan to %s over %f"), *FoundCapture->GetName(), *FoundCapture->GetActorLocation().ToString(), *GetNameSafe(this), *TargetLocation.ToString(), Duration);
+
+  // Try to match the capture component settings to the local player's camera (FOV, projection)
+	if (FoundCapture->GetCaptureComponent2D())
+	{
+		USceneCaptureComponent2D* CapComp = FoundCapture->GetCaptureComponent2D();
+		// ensure perspective projection and match FOV where possible
+		CapComp->ProjectionType = ECameraProjectionMode::Perspective;
+
+		if (APawn* LocalPawn = GetPawn())
+		{
+			if (ASeattleCharacter* PawnChar = Cast<ASeattleCharacter>(LocalPawn))
+			{
+				if (PawnChar->FollowCamera)
+				{
+					CapComp->FOVAngle = PawnChar->FollowCamera->FieldOfView;
+				}
+			}
+		}
+        // Force an update so any render target/view updates immediately
+		CapComp->CaptureScene();
+	}
 
 	// store pan state
 	PanStartLocation = FoundCapture->GetActorLocation();
@@ -246,6 +298,10 @@ void ASeattlePlayerController::UpdatePanSceneCapture()
 	{
 		GetWorldTimerManager().ClearTimer(PanTimerHandle);
         UE_LOG(LogSeattle, Log, TEXT("Client_PanSceneCapture: Completed pan on %s"), *GetNameSafe(this));
+		UE_LOG(LogSeattle, Log,
+			TEXT("GIBBERGIBBERISHCamera %s %s"),
+			*FoundCapture->GetActorLocation().ToString(),
+			*FoundCapture->GetActorRotation().ToString());
 	}
 }
 
@@ -956,6 +1012,16 @@ void ASeattlePlayerController::Server_RequestLeftAttack_Implementation()
 
     if (Target->LeftAttackMontage)
 	{
+     // Server-side stamina check and consume
+		if (Target->GetStaminaComponent())
+		{
+			if (!Target->GetStaminaComponent()->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestLeftAttack_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
+				return;
+			}
+			Target->GetStaminaComponent()->ConsumeStamina();
+		}
 		Target->Multicast_PlayAttackMontage(Target->LeftAttackMontage, Target->LeftAttackPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftAttack_Implementation: Triggered LeftAttackMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
 	}
@@ -980,6 +1046,15 @@ void ASeattlePlayerController::Server_RequestLeftHook_Implementation()
 
     if (Target->LeftHookMontage)
 	{
+     if (Target->GetStaminaComponent())
+		{
+			if (!Target->GetStaminaComponent()->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestLeftHook_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
+				return;
+			}
+			Target->GetStaminaComponent()->ConsumeStamina();
+		}
 		Target->Multicast_PlayAttackMontage(Target->LeftHookMontage, Target->LeftHookPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftHook_Implementation: Triggered LeftHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
 	}
@@ -1004,6 +1079,15 @@ void ASeattlePlayerController::Server_RequestLeftKick_Implementation()
 
     if (Target->LeftKickMontage)
 	{
+     if (Target->GetStaminaComponent())
+		{
+			if (!Target->GetStaminaComponent()->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestLeftKick_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
+				return;
+			}
+			Target->GetStaminaComponent()->ConsumeStamina();
+		}
 		Target->Multicast_PlayAttackMontage(Target->LeftKickMontage, Target->LeftKickPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftKick_Implementation: Triggered LeftKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
 	}
@@ -1028,6 +1112,15 @@ void ASeattlePlayerController::Server_RequestRightAttack_Implementation()
 
     if (Target->RightJabMontage)
 	{
+     if (Target->GetStaminaComponent())
+		{
+			if (!Target->GetStaminaComponent()->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestRightAttack_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
+				return;
+			}
+			Target->GetStaminaComponent()->ConsumeStamina();
+		}
 		Target->Multicast_PlayAttackMontage(Target->RightJabMontage, Target->RightJabPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightAttack_Implementation: Triggered RightJabMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
 	}
@@ -1052,6 +1145,15 @@ void ASeattlePlayerController::Server_RequestRightHook_Implementation()
 
     if (Target->RightHookMontage)
 	{
+       if (Target->GetStaminaComponent())
+		{
+			if (!Target->GetStaminaComponent()->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestRightHook_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
+				return;
+			}
+			Target->GetStaminaComponent()->ConsumeStamina();
+		}
 		Target->Multicast_PlayAttackMontage(Target->RightHookMontage, Target->RightHookPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightHook_Implementation: Triggered RightHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
 	}
@@ -1076,6 +1178,15 @@ void ASeattlePlayerController::Server_RequestRightKick_Implementation()
 
     if (Target->RightKickMontage)
 	{
+       if (Target->GetStaminaComponent())
+		{
+			if (!Target->GetStaminaComponent()->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestRightKick_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
+				return;
+			}
+			Target->GetStaminaComponent()->ConsumeStamina();
+		}
 		Target->Multicast_PlayAttackMontage(Target->RightKickMontage, Target->RightKickPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightKick_Implementation: Triggered RightKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
 	}

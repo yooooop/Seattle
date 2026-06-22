@@ -6,6 +6,9 @@
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Character.h"
 #include "Seattle.h"
+// Include HUD and PlayerController headers used for broadcasting stamina updates
+#include "UI/SeattleHUD.h"
+#include "SeattlePlayerController.h"
 
 ASeattleAIController::ASeattleAIController()
 {
@@ -14,6 +17,38 @@ ASeattleAIController::ASeattleAIController()
 
     // Attach to pawn for proper AI functionality
     bAttachToPawn = true;
+}
+
+void ASeattleAIController::BroadcastOpponentStamina(float StaminaPercent)
+{
+    UWorld* World = GetWorld();
+    if (!World)
+    {
+        return;
+    }
+
+    for (FConstPlayerControllerIterator It = World->GetPlayerControllerIterator(); It; ++It)
+    {
+        if (APlayerController* PC = It->Get())
+        {
+            if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
+            {
+                // If this is the local controller on this process, update HUD directly
+                if (PC->IsLocalController())
+                {
+                    if (ASeattleHUD* HUD = Cast<ASeattleHUD>(PC->GetHUD()))
+                    {
+                        HUD->UpdateOpponentStamina(StaminaPercent);
+                    }
+                }
+                else
+                {
+                    // Remote client - call client RPC to update their HUD
+                    SPC->Client_UpdateOpponentStamina(StaminaPercent);
+                }
+            }
+        }
+    }
 }
 
 void ASeattleAIController::OnPossess(APawn* InPawn)

@@ -5,6 +5,7 @@
 #include "GeneralInGameUI.generated.h"
 
 class UHealthBarWidget;
+class UStaminaBarWidget;
 
 UCLASS()
 class SEATTLE_API UGeneralInGameUI : public UUserWidget
@@ -20,10 +21,22 @@ public:
     UFUNCTION(BlueprintCallable, Category="UI")
     void SetOpponentHealthPercent(float Percent);
 
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void SetPlayerStaminaPercent(float Percent);
+
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void SetOpponentStaminaPercent(float Percent);
+
 protected:
     UPROPERTY(meta = (BindWidgetOptional))
     UHealthBarWidget* PlayerHealthBar;
 
     UPROPERTY(meta = (BindWidgetOptional))
     UHealthBarWidget* OpponentHealthBar;
+
+    UPROPERTY(meta = (BindWidgetOptional))
+    UStaminaBarWidget* PlayerStaminaBar;
+
+    UPROPERTY(meta = (BindWidgetOptional))
+    UStaminaBarWidget* OpponentStaminaBar;
 };

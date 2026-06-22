@@ -4,6 +4,7 @@
 #include "SeattleAI.h"
 #include "Net/UnrealNetwork.h"
 #include "Seattle.h"
+#include "StaminaComponent.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimInstance.h"
 #include "GameFramework/Actor.h"
@@ -18,6 +19,13 @@ ASeattleAI::ASeattleAI()
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
 	SetReplicateMovement(true);
+
+	// create stamina component for AI
+	StaminaComponent = CreateDefaultSubobject<UStaminaComponent>(TEXT("StaminaComponent"));
+	if (StaminaComponent)
+	{
+		StaminaComponent->SetIsReplicated(true);
+	}
 }
 
 void ASeattleAI::DoAttackTrace(FName DamageSourceBone)
@@ -150,6 +158,55 @@ void ASeattleAI::BeginPlay()
 	{
 		Health = MaxHealth;
 	}
+
+	if (StaminaComponent)
+	{
+		// initialize and bind
+		CurrentStamina = StaminaComponent->CurrentStamina;
+		StaminaComponent->OnStaminaChanged.AddDynamic(this, &ASeattleAI::OnStaminaChanged);
+	}
+}
+
+void ASeattleAI::OnStaminaChanged(float NewStamina, float MaxStamina)
+{
+	CurrentStamina = NewStamina;
+}
+
+void ASeattleAI::DoAISlide(FVector Direction)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	if (!StaminaComponent)
+	{
+		return;
+	}
+
+	if (!StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("%s DoAISlide: Not enough stamina"), *GetName());
+		return;
+	}
+
+	// consume stamina and perform slide
+	StaminaComponent->ConsumeStamina();
+
+	const FVector SlideDir = Direction.IsNearlyZero() ? GetActorForwardVector() : Direction.GetSafeNormal();
+	const FVector Velocity = SlideDir * SlideDistance / FMath::Max(SlideDuration, 0.01f);
+
+	LaunchCharacter(Velocity, true, true);
+	UE_LOG(LogSeattle, Log, TEXT("%s DoAISlide: Launched with vel %s"), *GetName(), *Velocity.ToString());
+}
+
+float ASeattleAI::GetStaminaPercent() const
+{
+	if (StaminaComponent)
+	{
+		return StaminaComponent->GetStaminaPercent();
+	}
+	return 0.f;
 }
 
 void ASeattleAI::Tick(float DeltaTime)
@@ -273,6 +330,7 @@ void ASeattleAI::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifeti
 	// Animation state replication
 	DOREPLIFETIME(ASeattleAI, bIsAttacking);
 	DOREPLIFETIME(ASeattleAI, ActiveAttackType);
+   DOREPLIFETIME(ASeattleAI, CurrentStamina);
 }
 
 void ASeattleAI::SetActiveAttackType(ESeattleAttackType NewAttackType)
@@ -293,10 +351,23 @@ bool ASeattleAI::Server_PlayAttackMontage_Validate(UAnimMontage* Montage, float 
 void ASeattleAI::Server_PlayAttackMontage_Implementation(UAnimMontage* Montage, float PlayRate)
 {
 	UE_LOG(LogSeattle, Log, TEXT("%s Server_PlayAttackMontage_Implementation: server received request Montage=%s PlayRate=%f"), *GetName(), Montage ? *Montage->GetName() : TEXT("null"), PlayRate);
-	if (Montage)
+    if (!Montage)
 	{
-		Multicast_PlayAttackMontage(Montage, PlayRate);
+		return;
 	}
+
+	// server-authoritative stamina check/consume for AI attacks
+	if (StaminaComponent)
+	{
+		if (!StaminaComponent->HasEnoughStamina())
+		{
+			UE_LOG(LogSeattle, Log, TEXT("%s Server_PlayAttackMontage_Implementation: Not enough stamina to play montage"), *GetName());
+			return;
+		}
+		StaminaComponent->ConsumeStamina();
+	}
+
+	Multicast_PlayAttackMontage(Montage, PlayRate);
 }
 
 void ASeattleAI::Multicast_PlayAttackMontage_Implementation(UAnimMontage* Montage, float PlayRate)
@@ -334,9 +405,19 @@ void ASeattleAI::RequestPlayAttackMontage(UAnimMontage* Montage, float PlayRate)
 		UE_LOG(LogSeattle, Warning, TEXT("%s RequestPlayAttackMontage: Montage is null"), *GetName());
 		return;
 	}
-
 	if (HasAuthority())
 	{
+		// Server consumes stamina and multicasts
+		if (StaminaComponent)
+		{
+			if (!StaminaComponent->HasEnoughStamina())
+			{
+				UE_LOG(LogSeattle, Log, TEXT("%s RequestPlayAttackMontage: Not enough stamina on server"), *GetName());
+				return;
+			}
+			StaminaComponent->ConsumeStamina();
+		}
+
 		UE_LOG(LogSeattle, Log, TEXT("%s RequestPlayAttackMontage: HasAuthority -> calling Multicast. Montage=%s PlayRate=%f"), *GetName(), *Montage->GetName(), PlayRate);
 		Multicast_PlayAttackMontage(Montage, PlayRate);
 	}

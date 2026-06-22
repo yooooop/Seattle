@@ -1,5 +1,6 @@
 #include "GeneralInGameUI.h"
 #include "HealthBarWidget.h"
+#include "StaminaBarWidget.h"
 
 void UGeneralInGameUI::NativeConstruct()
 {
@@ -12,6 +13,14 @@ void UGeneralInGameUI::NativeConstruct()
     if (OpponentHealthBar)
     {
         OpponentHealthBar->SetHealthPercent(1.0f);
+    }
+    if (PlayerStaminaBar)
+    {
+        PlayerStaminaBar->SetStaminaPercent(1.0f);
+    }
+    if (OpponentStaminaBar)
+    {
+        OpponentStaminaBar->SetStaminaPercent(1.0f);
     }
 }
 
@@ -28,5 +37,21 @@ void UGeneralInGameUI::SetOpponentHealthPercent(float Percent)
     if (OpponentHealthBar)
     {
         OpponentHealthBar->SetHealthPercent(Percent);
+    }
+}
+
+void UGeneralInGameUI::SetPlayerStaminaPercent(float Percent)
+{
+    if (PlayerStaminaBar)
+    {
+        PlayerStaminaBar->SetStaminaPercent(Percent);
+    }
+}
+
+void UGeneralInGameUI::SetOpponentStaminaPercent(float Percent)
+{
+    if (OpponentStaminaBar)
+    {
+        OpponentStaminaBar->SetStaminaPercent(Percent);
     }
 }

@@ -9,6 +9,8 @@
 #include "Animation/AnimMontage.h"
 #include "SeattleAI.generated.h"
 
+class UStaminaComponent;
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSeattleAIHealthChangedSignature, float, NewHealth, float, HealthDelta);
 
 UCLASS()
@@ -17,6 +19,8 @@ class SEATTLE_API ASeattleAI : public ACharacter, public ICombatAttacker
 	GENERATED_BODY()
 
 public:
+    /** Returns stamina component */
+	FORCEINLINE class UStaminaComponent* GetStaminaComponent() const { return StaminaComponent; }
 	// Sets default values for this character's properties
 	ASeattleAI();
 
@@ -88,6 +92,35 @@ public:
 
 	UPROPERTY(BlueprintAssignable, Category = "Health")
 	FSeattleAIHealthChangedSignature OnHealthChanged;
+
+	/** Stamina component for AI actions */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components")
+	UStaminaComponent* StaminaComponent;
+
+	/** Current stamina value (units) - kept in sync for Blackboard use */
+	UPROPERTY(Replicated, BlueprintReadWrite, EditAnywhere, Category = "Stamina")
+	float CurrentStamina = 0.f;
+
+	/** Slide tuning for AI (distance in cm) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float SlideDistance = 150.f;
+
+	/** Slide duration for AI */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float SlideDuration = 0.2f;
+
+public:
+	/** Perform a slide for AI in the given direction (server authoritative) */
+	UFUNCTION(BlueprintCallable, Category = "Movement")
+	void DoAISlide(FVector Direction);
+
+	/** Return current stamina percent 0..1 */
+	UFUNCTION(BlueprintCallable, Category = "Stamina")
+	float GetStaminaPercent() const;
+
+protected:
+	UFUNCTION()
+	void OnStaminaChanged(float NewStamina, float MaxStamina);
 
 public:	
 	// Called every frame

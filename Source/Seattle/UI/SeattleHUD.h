@@ -25,6 +25,10 @@ public:
     UFUNCTION(BlueprintCallable, Category="UI")
     void HideMainMenu();
 
+    /** Hide main menu but optionally suppress triggering server start (used by server-side flow) */
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void HideMainMenu_SuppressStart();
+
     UFUNCTION(BlueprintCallable, Category="UI")
     void ShowEndScreen(const FText& WinnerText);
 
@@ -46,11 +50,21 @@ public:
     UFUNCTION()
     void OnPlayerHealthChanged(float NewHealth, float HealthDelta);
 
+    /** Handler for player stamina changes (bound to stamina component delegate) */
+    UFUNCTION()
+    void OnPlayerStaminaChanged(float CurrentStamina, float MaxStamina);
+
     UFUNCTION(BlueprintCallable, Category="UI")
     void UpdatePlayerHealth(float Percent);
 
     UFUNCTION(BlueprintCallable, Category="UI")
     void UpdateOpponentHealth(float Percent);
+
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void UpdatePlayerStamina(float Percent);
+
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void UpdateOpponentStamina(float Percent);
 
 
     void StartEndSequence(AActor* DownedActor);
@@ -101,6 +115,10 @@ private:
     /** Handler for opponent health changes (bound to opponent delegate) */
     UFUNCTION()
     void OnOpponentHealthChanged(float NewHealth, float HealthDelta);
+
+    /** Handler for opponent stamina changes (bound to AI stamina component) */
+    UFUNCTION()
+    void OnOpponentStaminaChanged(float CurrentStamina, float MaxStamina);
 
 
     UPROPERTY()

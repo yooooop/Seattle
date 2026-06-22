@@ -25,6 +25,7 @@
 #include "Variant_Combat/Interfaces/CombatDamageable.h"
 #include "Variant_Combat/AI/CombatEnemy.h"
 #include "Camera/CameraShakeBase.h"
+#include "StaminaComponent.h"
 
 ASeattleCharacter::ASeattleCharacter()
 {
@@ -61,6 +62,9 @@ ASeattleCharacter::ASeattleCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	// Create stamina component
+	StaminaComponent = CreateDefaultSubobject<UStaminaComponent>(TEXT("StaminaComponent"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -151,7 +155,7 @@ void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FV
 	// Trigger client-side effects on the owning client
 	for (FConstPlayerControllerIterator It = GetWorld()->GetPlayerControllerIterator(); It; ++It)
 	{
-		if (ASeattlePlayerController* PC = Cast<ASeattlePlayerController>(It->Get()))
+	if (ASeattlePlayerController* PC = Cast<ASeattlePlayerController>(It->Get()))
 		{
 			PC->Client_PlayHitEffects(HitCameraShakeClass);
 		}
@@ -207,6 +211,13 @@ void ASeattleCharacter::Server_RequestSlide_Implementation(FVector Direction)
 
 void ASeattleCharacter::DoSlide(FVector Direction)
 {
+	// Check stamina availability (server-side)
+	if (HasAuthority() && StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("DoSlide: Not enough stamina for %s"), *GetNameSafe(this));
+		return;
+	}
+
 	if (!Controller)
 	{
 		Controller = GetController();
@@ -223,6 +234,12 @@ void ASeattleCharacter::DoSlide(FVector Direction)
 	const FVector Velocity = DirNorm * Speed;
 
 	LaunchCharacter(Velocity, true, true);
+
+	// Consume stamina on server
+	if (HasAuthority() && StaminaComponent)
+	{
+		StaminaComponent->ConsumeStamina();
+	}
 
 	UE_LOG(LogTemp, Warning,
 		TEXT("Character=%s Owner=%s LocalRole=%d RemoteRole=%d"),
@@ -494,7 +511,20 @@ bool ASeattleCharacter::Server_PerformMeleeAttack_Validate(FVector NormalizedAim
 void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector NormalizedAimDir, float Range, float Radius, float Damage)
 {
 	// Authority: perform trace and apply damage to any ASeattleAI hit
-	UE_LOG(LogSeattle, Log, TEXT("%s Server_PerformMeleeAttack_Implementation: Aim=%s Range=%f Radius=%f Damage=%f"), *GetNameSafe(this), *NormalizedAimDir.ToString(), Range, Radius, Damage);
+    UE_LOG(LogSeattle, Log, TEXT("%s Server_PerformMeleeAttack_Implementation: Aim=%s Range=%f Radius=%f Damage=%f"), *GetNameSafe(this), *NormalizedAimDir.ToString(), Range, Radius, Damage);
+
+	// Server-authoritative stamina check: prevent client from performing melee if not enough stamina
+	if (StaminaComponent)
+	{
+		if (!StaminaComponent->HasEnoughStamina())
+		{
+			UE_LOG(LogSeattle, Log, TEXT("%s Server_PerformMeleeAttack_Implementation: Not enough stamina to perform melee"), *GetNameSafe(this));
+			return;
+		}
+
+		// consume stamina for this melee action
+		StaminaComponent->ConsumeStamina();
+	}
 
 	FVector Start = GetActorLocation() + FVector(0.f, 0.f, 70.f);
 	FVector End = Start + NormalizedAimDir * Range;
@@ -521,10 +551,15 @@ void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector Normali
 		// Optionally draw debug
 		//DrawDebugSphere(GetWorld(), Hit.ImpactPoint, Radius, 12, FColor::Red, false, 2.f);
 
-		// Spawn impact VFX on all clients (multicast). If ImpactFXActorClass is set it will be spawned locally on each client.
+        // Spawn impact VFX on all clients (multicast).
+		// Prefer the class-based multicast so callers can explicitly choose a FX class if needed.
 		if (ImpactFXActorClass)
 		{
-			Multicast_SpawnImpactFX(Hit.ImpactPoint);
+			Multicast_SpawnImpactFXClass(ImpactFXActorClass, Hit.ImpactPoint);
+		}
+		else
+		{
+			UE_LOG(LogSeattle, Warning, TEXT("Server_PerformMeleeAttack_Implementation: No ImpactFXActorClass set, cannot spawn impact FX for hit at %s"), *Hit.ImpactPoint.ToString());
 		}
 	}
 	else
@@ -648,9 +683,20 @@ void ASeattleCharacter::StartLeftAttack()
 		return;
 	}
 
+	// Server-authoritative case: check stamina before playing
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] StartLeftAttack: Not enough stamina"), *GetNameSafe(this));
+		return;
+	}
+
 	// Server-authoritative case: play and multicast directly
 	if (LeftAttackMontage)
 	{
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
 		Multicast_PlayAttackMontage(LeftAttackMontage, LeftAttackPlayRate);
 	}
 	else
@@ -679,8 +725,19 @@ void ASeattleCharacter::StartLeftHook()
 		return;
 	}
 
+	// Check stamina on server
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] StartLeftHook: Not enough stamina"), *GetNameSafe(this));
+		return;
+	}
+
 	if (LeftHookMontage)
 	{
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
 		Multicast_PlayAttackMontage(LeftHookMontage, LeftHookPlayRate);
 	}
 	else
@@ -709,8 +766,19 @@ void ASeattleCharacter::StartLeftKick()
 		return;
 	}
 
+	// Check stamina on server
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] StartLeftKick: Not enough stamina"), *GetNameSafe(this));
+		return;
+	}
+
 	if (LeftKickMontage)
 	{
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
 		Multicast_PlayAttackMontage(LeftKickMontage, LeftKickPlayRate);
 	}
 	else
@@ -739,8 +807,19 @@ void ASeattleCharacter::StartRightAttack()
 		return;
 	}
 
+	// Check stamina on server
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] StartRightAttack: Not enough stamina"), *GetNameSafe(this));
+		return;
+	}
+
 	if (RightJabMontage)
 	{
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
 		Multicast_PlayAttackMontage(RightJabMontage, RightJabPlayRate);
 	}
 	else
@@ -769,8 +848,19 @@ void ASeattleCharacter::StartRightHook()
 		return;
 	}
 
+	// Check stamina on server
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] StartRightHook: Not enough stamina"), *GetNameSafe(this));
+		return;
+	}
+
 	if (RightHookMontage)
 	{
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
 		Multicast_PlayAttackMontage(RightHookMontage, RightHookPlayRate);
 	}
 	else
@@ -799,8 +889,19 @@ void ASeattleCharacter::StartRightKick()
 		return;
 	}
 
+	// Check stamina on server
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] StartRightKick: Not enough stamina"), *GetNameSafe(this));
+		return;
+	}
+
 	if (RightKickMontage)
 	{
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
 		Multicast_PlayAttackMontage(RightKickMontage, RightKickPlayRate);
 	}
 	else
@@ -1073,8 +1174,22 @@ bool ASeattleCharacter::Server_PlayAttackMontage_Validate(UAnimMontage* Montage,
 void ASeattleCharacter::Server_PlayAttackMontage_Implementation(UAnimMontage* Montage, float PlayRate)
 {
 	UE_LOG(LogSeattle, Log, TEXT("[%s] Server_PlayAttackMontage_Implementation: server received request Montage=%s PlayRate=%f LocalRole=%d"), *GetNameSafe(this), Montage ? *Montage->GetName() : TEXT("null"), PlayRate, (int32)GetLocalRole());
+	
+	// Check stamina availability on server
+	if (StaminaComponent && !StaminaComponent->HasEnoughStamina())
+	{
+		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_PlayAttackMontage_Implementation: Not enough stamina to attack"), *GetNameSafe(this));
+		return;
+	}
+
 	if (Montage)
 	{
+		// Consume stamina before playing attack
+		if (StaminaComponent)
+		{
+			StaminaComponent->ConsumeStamina();
+		}
+
 		// Server initiates the multicast so everyone (including server) plays the montage
 		Multicast_PlayAttackMontage(Montage, PlayRate);
 	}

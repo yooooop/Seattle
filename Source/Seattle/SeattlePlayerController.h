@@ -40,6 +40,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_RequestStartGame();
 
+	/** Internal: server-side handler to start the game (call only on authority) */
+	UFUNCTION()
+	void HandleStartGameRequest();
+
 	/** Server notifies all clients and stops AI when end-game occurs */
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_NotifyEndGame();
@@ -51,6 +55,13 @@ public:
 	/** Client RPC: pan the scene capture actor to the given location/rotation over Duration seconds */
 	UFUNCTION(Client, Reliable)
 	void Client_PanSceneCapture(FVector TargetLocation, FRotator TargetRotation, float Duration);
+
+    /** Client RPC to update opponent stamina bar on this player's HUD */
+	UFUNCTION(Client, Unreliable)
+	void Client_UpdateOpponentStamina(float StaminaPercent);
+
+	/** Implementation hook for Client_UpdateOpponentStamina (declared to satisfy compilers/tools) */
+	void Client_UpdateOpponentStamina_Implementation(float StaminaPercent);
 
 protected:
 	// Pan state for scene capture on client

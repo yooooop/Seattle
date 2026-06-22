@@ -1,10 +1,10 @@
 #include "SeattleHUD.h"
-#include "SeattleHUD.h"
 #include "Blueprint/UserWidget.h"
 #include "Seattle.h"
 #include "MainMenuWidget.h"
 #include "EndScreenWidget.h"
 #include "HealthBarWidget.h"
+#include "StaminaBarWidget.h"
 #include "GeneralInGameUI.h"
 #include "Kismet/GameplayStatics.h"
 #include "EngineUtils.h"
@@ -14,6 +14,7 @@
 #include "Engine/SceneCapture2D.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "SeattleCharacter.h"
+#include "StaminaComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "SeattlePlayerController.h"
@@ -21,6 +22,60 @@
 
 ASeattleHUD::ASeattleHUD()
 {
+}
+
+void ASeattleHUD::OnOpponentStaminaChanged(float CurrentStamina, float MaxStamina)
+{
+    if (!CachedOpponentPawn)
+    {
+        return;
+    }
+
+    const float Percent = (MaxStamina > 0.f) ? CurrentStamina / MaxStamina : 0.f;
+    UpdateOpponentStamina(Percent);
+}
+
+void ASeattleHUD::UpdateOpponentStamina(float Percent)
+{
+    if (GeneralInGameWidget)
+    {
+        if (UWidget* Found = GeneralInGameWidget->GetWidgetFromName(TEXT("OpponentStaminaBar")))
+        {
+            if (UStaminaBarWidget* SB = Cast<UStaminaBarWidget>(Found))
+            {
+                SB->SetStaminaPercent(Percent);
+                return;
+            }
+        }
+        // fallback to direct function
+        GeneralInGameWidget->SetOpponentStaminaPercent(Percent);
+        return;
+    }
+
+    // no general widget: attempt to update standalone opponent widget
+    if (OpponentHealthWidget)
+    {
+        // nothing to do here - health widget doesn't show stamina
+    }
+}
+
+void ASeattleHUD::HideMainMenu_SuppressStart()
+{
+    if (MainMenuWidget)
+    {
+        MainMenuWidget->RemoveFromParent();
+    }
+
+    // restore game input and hide cursor
+    if (APlayerController* PC = GetOwningPlayerController())
+    {
+        PC->bShowMouseCursor = false;
+        FInputModeGameOnly GameInput;
+        PC->SetInputMode(GameInput);
+        PC->SetPause(false);
+    }
+
+    ShowInGameUI();
 }
 
 void ASeattleHUD::StartSlideOverlay(float Duration)
@@ -467,12 +522,21 @@ void ASeattleHUD::HideMainMenu()
         PC->SetInputMode(GameInput);
         PC->SetPause(false);
 
-        // If this is the local player, request server to start the match for all players
+        // If this is the local player, either request the server to start the match (client) or start locally (listen-server)
         if (PC->IsLocalController())
         {
             if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
             {
-                SPC->Server_RequestStartGame();
+                if (PC->HasAuthority())
+                {
+                    // We're the listen-server; invoke the server-side handler directly to start the match
+                    SPC->HandleStartGameRequest();
+                }
+                else
+                {
+                    // We're a remote client; request the server to start
+                    SPC->Server_RequestStartGame();
+                }
             }
         }
     }
@@ -565,10 +629,21 @@ void ASeattleHUD::ShowInGameUI()
 
         if (ASeattleCharacter* SC = Cast<ASeattleCharacter>(PlayerPawn))
         {
-            // bind using C++ multicast delegate
+            // Ensure we don't double-bind when ShowInGameUI is called multiple times
+            SC->OnHealthChanged.RemoveAll(this);
             SC->OnHealthChanged.AddUObject(this, &ASeattleHUD::OnPlayerHealthChanged);
             // initialize UI with current health
             UpdatePlayerHealth(SC->GetHealthPercent());
+
+            // bind to stamina changes if component exists
+            if (UStaminaComponent* StaminaComp = SC->GetStaminaComponent())
+            {
+                // Remove any previous dynamic binding then add to avoid ensure() failures in editor builds
+                StaminaComp->OnStaminaChanged.RemoveDynamic(this, &ASeattleHUD::OnPlayerStaminaChanged);
+                StaminaComp->OnStaminaChanged.AddDynamic(this, &ASeattleHUD::OnPlayerStaminaChanged);
+                // initialize UI with current stamina (guarded)
+                UpdatePlayerStamina(StaminaComp->GetStaminaPercent());
+            }
         }
         else if (auto* CC = Cast<class ACombatCharacter>(PlayerPawn))
         {
@@ -591,6 +666,13 @@ void ASeattleHUD::ShowInGameUI()
 
             // bind dynamic delegate
             AI->OnHealthChanged.AddDynamic(this, &ASeattleHUD::OnOpponentHealthChanged);
+            // bind to stamina changes on AI if component exists
+            if (UStaminaComponent* StaminaComp = AI->GetStaminaComponent())
+            {
+                StaminaComp->OnStaminaChanged.AddDynamic(this, &ASeattleHUD::OnOpponentStaminaChanged);
+                UpdateOpponentStamina(StaminaComp->GetStaminaPercent());
+            }
+
             CachedOpponentPawn = AI;
             UpdateOpponentHealth(AI->GetHealthPercent());
             break;
@@ -791,4 +873,19 @@ void ASeattleHUD::UpdateOpponentHealth(float Percent)
     {
         OpponentHealthWidget->SetHealthPercent(Percent);
     }
+}
+
+void ASeattleHUD::UpdatePlayerStamina(float Percent)
+{
+    // Use the general in-game UI method if available
+    if (GeneralInGameWidget)
+    {
+        GeneralInGameWidget->SetPlayerStaminaPercent(Percent);
+    }
+}
+
+void ASeattleHUD::OnPlayerStaminaChanged(float CurrentStamina, float MaxStamina)
+{
+    const float Percent = (MaxStamina > 0.0f) ? (CurrentStamina / MaxStamina) : 0.0f;
+    UpdatePlayerStamina(Percent);
 }

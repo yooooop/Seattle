@@ -16,6 +16,7 @@ class UAnimMontage;
 struct FInputActionValue;
 class APlayerController;
 class AImpactFXActor;
+class UStaminaComponent;
 
 class UCameraShakeBase;
 
@@ -118,6 +119,10 @@ public:
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
+	
+	/** Stamina component for managing action costs */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UStaminaComponent* StaminaComponent;
 	
 protected:
 
@@ -401,6 +406,9 @@ public:
 
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	/** Returns StaminaComponent subobject **/
+	FORCEINLINE class UStaminaComponent* GetStaminaComponent() const { return StaminaComponent; }
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 };
