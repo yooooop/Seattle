@@ -1034,7 +1034,7 @@ void ASeattlePlayerController::Server_RequestLeftAttack_Implementation()
 				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestLeftAttack_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
 				return;
 			}
-			Target->GetStaminaComponent()->ConsumeStamina();
+			//Target->GetStaminaComponent()->ConsumeStamina();
 		}
 		Target->Multicast_PlayAttackMontage(Target->LeftAttackMontage, Target->LeftAttackPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftAttack_Implementation: Triggered LeftAttackMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -1067,7 +1067,7 @@ void ASeattlePlayerController::Server_RequestLeftHook_Implementation()
 				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestLeftHook_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
 				return;
 			}
-			Target->GetStaminaComponent()->ConsumeStamina();
+			//Target->GetStaminaComponent()->ConsumeStamina();
 		}
 		Target->Multicast_PlayAttackMontage(Target->LeftHookMontage, Target->LeftHookPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftHook_Implementation: Triggered LeftHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -1100,7 +1100,7 @@ void ASeattlePlayerController::Server_RequestLeftKick_Implementation()
 				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestLeftKick_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
 				return;
 			}
-			Target->GetStaminaComponent()->ConsumeStamina();
+			//Target->GetStaminaComponent()->ConsumeStamina();
 		}
 		Target->Multicast_PlayAttackMontage(Target->LeftKickMontage, Target->LeftKickPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestLeftKick_Implementation: Triggered LeftKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -1133,7 +1133,7 @@ void ASeattlePlayerController::Server_RequestRightAttack_Implementation()
 				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestRightAttack_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
 				return;
 			}
-			Target->GetStaminaComponent()->ConsumeStamina();
+			//Target->GetStaminaComponent()->ConsumeStamina();
 		}
 		Target->Multicast_PlayAttackMontage(Target->RightJabMontage, Target->RightJabPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightAttack_Implementation: Triggered RightJabMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -1166,7 +1166,7 @@ void ASeattlePlayerController::Server_RequestRightHook_Implementation()
 				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestRightHook_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
 				return;
 			}
-			Target->GetStaminaComponent()->ConsumeStamina();
+			//Target->GetStaminaComponent()->ConsumeStamina();
 		}
 		Target->Multicast_PlayAttackMontage(Target->RightHookMontage, Target->RightHookPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightHook_Implementation: Triggered RightHookMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));
@@ -1199,7 +1199,7 @@ void ASeattlePlayerController::Server_RequestRightKick_Implementation()
 				UE_LOG(LogSeattle, Log, TEXT("%s Server_RequestRightKick_Implementation: Target %s does not have enough stamina"), *GetNameSafe(this), *GetNameSafe(Target));
 				return;
 			}
-			Target->GetStaminaComponent()->ConsumeStamina();
+			//Target->GetStaminaComponent()->ConsumeStamina();
 		}
 		Target->Multicast_PlayAttackMontage(Target->RightKickMontage, Target->RightKickPlayRate);
 		UE_LOG(LogSeattle, Log, TEXT("[%s] Server_RequestRightKick_Implementation: Triggered RightKickMontage on %s"), *GetNameSafe(this), *GetNameSafe(Target));

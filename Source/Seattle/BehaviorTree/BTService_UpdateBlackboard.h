@@ -34,4 +34,11 @@ protected:
     // previous distance used to detect entering attack range
     bool bPreviouslyInAttackRange = false;
     float PreviousDistance = FLT_MAX;
+
+    /** Timestamp when IsActing was first observed; used to auto-clear stale IsActing flags */
+    float LastIsActingSeenTime = -1.f;
+
+    /** How long to allow IsActing to persist before auto-clearing (seconds) */
+    UPROPERTY(EditAnywhere, Category = "AI|Debug")
+    float ActingStaleTimeout = 3.0f;
 };

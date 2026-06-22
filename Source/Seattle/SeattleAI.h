@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "SeattleCharacter.h"
+#include "BehaviorTree/CombatAction.h"
 #include "Variant_Combat/Interfaces/CombatAttacker.h"
 #include "Animation/AnimMontage.h"
 #include "SeattleAI.generated.h"
@@ -191,7 +192,11 @@ public:
 
 	/** AI melee tuning */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
-	float MeleeRange = 200.f;
+	float MeleeRange = 100.f;
+
+	/** Buffer (cm) to stop inside MeleeRange so AI finishes slightly within attack distance */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
+	float AttackBuffer = 30.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
 	float MeleeRadius = 20.f;
@@ -209,4 +214,21 @@ protected:
 	void Server_ApplyHealthChange(float Change, AActor* DamageInstigator);
 
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
+public:
+    /** Last action performed by the AI (client-visible for debugging). Used to apply repeat penalties. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Combat")
+	ECombatAction LastActionPerformed = ECombatAction::None;
+
+	/** Recent action history to avoid repeating patterns (most recent at index 0) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Combat")
+	TArray<ECombatAction> RecentActions;
+
+	/** How many recent actions to remember when applying penalties */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Combat")
+	int32 RecentActionMemorySize = 3;
+
+	/** Record an action into history (server authoritative) */
+	UFUNCTION()
+	void RecordAction(ECombatAction Action);
 };

@@ -378,7 +378,7 @@ public:
 
 	/** Melee attack tuning (used by player controller to request server melee) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
-	float MeleeRange = 200.f;
+	float MeleeRange = 100.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
 	float MeleeRadius = 20.f;

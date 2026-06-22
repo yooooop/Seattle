@@ -21,9 +21,15 @@ public:
     UPROPERTY(EditAnywhere, Category = "Utility")
     float EvaluationInterval = 0.15f;
 
-    /** Attack effective range (cm) */
-    UPROPERTY(EditAnywhere, Category = "Utility")
-    float AttackRange = 200.f;
+    // Penalty tuning for recent repeats
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Utility|RepeatPenalty")
+    float JabRepeatPenalty = 30.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Utility|RepeatPenalty")
+    float HookRepeatPenalty = 25.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Utility|RepeatPenalty")
+    float SlideRepeatPenalty = 50.f;
 
     /** Dodge effective range (cm). Only consider dodges when target is within this range */
     UPROPERTY(EditAnywhere, Category = "Utility")

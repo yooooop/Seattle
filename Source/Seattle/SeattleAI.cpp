@@ -2,6 +2,7 @@
 
 
 #include "SeattleAI.h"
+#include "BehaviorTree/CombatAction.h"
 #include "Net/UnrealNetwork.h"
 #include "Seattle.h"
 #include "StaminaComponent.h"
@@ -25,6 +26,19 @@ ASeattleAI::ASeattleAI()
 	if (StaminaComponent)
 	{
 		StaminaComponent->SetIsReplicated(true);
+	}
+
+}
+
+void ASeattleAI::RecordAction(ECombatAction Action)
+{
+	LastActionPerformed = Action;
+	// insert at front
+	RecentActions.Insert(Action, 0);
+	// trim
+	while (RecentActions.Num() > RecentActionMemorySize)
+	{
+		RecentActions.RemoveAt(RecentActions.Num() - 1);
 	}
 }
 

@@ -72,17 +72,27 @@ ASeattleCharacter::ASeattleCharacter()
 
 void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<AImpactFXActor> FXClass, FVector Location)
 {
+
+	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 1st"));
+	
 	TSubclassOf<AImpactFXActor> UseClass = FXClass ? FXClass : ImpactFXActorClass;
 	if (!UseClass)
 	{
 		return;
 	}
 
+
+	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 2nd"));
+
 	UWorld* World = GetWorld();
 	if (!World)
 	{
 		return;
 	}
+
+
+	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 3rd"));
+
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
@@ -126,6 +136,9 @@ void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FV
 		}
 	}
 
+
+	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st"));
+
     const float Previous = Health;
 	Health = FMath::Clamp(Health - Applied, 0.f, MaxHealth);
 
@@ -134,10 +147,12 @@ void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FV
 	// spawn different impact FX when hit by AI
 	if (DamageCauser && (DamageCauser->IsA(ASeattleAI::StaticClass()) || DamageCauser->IsA(ACombatEnemy::StaticClass())))
 	{
+		UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st"));
 		// prefer AI-specific FX class if set, otherwise fallback to generic
 		TSubclassOf<AImpactFXActor> UseClass = ImpactFXActorAIHitClass ? ImpactFXActorAIHitClass : ImpactFXActorClass;
 		if (UseClass)
 		{
+			UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 0th"));
             // spawn via multicast so all clients see it
 			Multicast_SpawnImpactFXClass(UseClass, DamageLocation);
 		}
@@ -541,6 +556,9 @@ void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector Normali
 
 	bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params);
 
+
+	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st -1st"));
+
 	if (bHit && Hit.GetActor())
 	{
 		UE_LOG(LogSeattle, Log, TEXT("%s Melee hit actor %s at location %s"), *GetNameSafe(this), *GetNameSafe(Hit.GetActor()), *Hit.ImpactPoint.ToString());
@@ -561,6 +579,8 @@ void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector Normali
 		// Prefer the class-based multicast so callers can explicitly choose a FX class if needed.
 		if (ImpactFXActorClass)
 		{
+
+			UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 0th 0th"));
 			Multicast_SpawnImpactFXClass(ImpactFXActorClass, Hit.ImpactPoint);
 		}
 		else
@@ -701,7 +721,7 @@ void ASeattleCharacter::StartLeftAttack()
 	{
 		if (StaminaComponent)
 		{
-			StaminaComponent->ConsumeStamina();
+			//StaminaComponent->ConsumeStamina();
 		}
 		Multicast_PlayAttackMontage(LeftAttackMontage, LeftAttackPlayRate);
 	}
@@ -742,7 +762,7 @@ void ASeattleCharacter::StartLeftHook()
 	{
 		if (StaminaComponent)
 		{
-			StaminaComponent->ConsumeStamina();
+			//StaminaComponent->ConsumeStamina();
 		}
 		Multicast_PlayAttackMontage(LeftHookMontage, LeftHookPlayRate);
 	}
@@ -783,7 +803,7 @@ void ASeattleCharacter::StartLeftKick()
 	{
 		if (StaminaComponent)
 		{
-			StaminaComponent->ConsumeStamina();
+			//StaminaComponent->ConsumeStamina();
 		}
 		Multicast_PlayAttackMontage(LeftKickMontage, LeftKickPlayRate);
 	}
@@ -824,7 +844,7 @@ void ASeattleCharacter::StartRightAttack()
 	{
 		if (StaminaComponent)
 		{
-			StaminaComponent->ConsumeStamina();
+			//StaminaComponent->ConsumeStamina();
 		}
 		Multicast_PlayAttackMontage(RightJabMontage, RightJabPlayRate);
 	}
@@ -865,7 +885,7 @@ void ASeattleCharacter::StartRightHook()
 	{
 		if (StaminaComponent)
 		{
-			StaminaComponent->ConsumeStamina();
+			//StaminaComponent->ConsumeStamina();
 		}
 		Multicast_PlayAttackMontage(RightHookMontage, RightHookPlayRate);
 	}
@@ -906,7 +926,7 @@ void ASeattleCharacter::StartRightKick()
 	{
 		if (StaminaComponent)
 		{
-			StaminaComponent->ConsumeStamina();
+			//StaminaComponent->ConsumeStamina();
 		}
 		Multicast_PlayAttackMontage(RightKickMontage, RightKickPlayRate);
 	}

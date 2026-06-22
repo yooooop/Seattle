@@ -26,7 +26,7 @@ void UBTService_UtilitySelector::OnBecomeRelevant(UBehaviorTreeComponent& OwnerC
         HasStaminaKey = BB->GetKeyID(FName("HasStamina"));
         BestActionKey = BB->GetKeyID(FName("BestAction"));
         IsActingKey = BB->GetKeyID(FName("IsActing"));
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] OnBecomeRelevant - Cached Blackboard keys: BestActionKey=%d IsActingKey=%d"), (int)BestActionKey, (int)IsActingKey);
+
     }
 }
 
@@ -45,14 +45,20 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         return;
     }
 
+    // Simple existence log so we can verify the selector runs
+ 
     // Do not evaluate if already acting. Support both Bool and Int variants for editor decorator compatibility.
     const int32 IsActingInt = BB->GetValueAsInt(FName("IsActingInt"));
+    UE_LOG(LogTemp, Warning, TEXT("testinghere UtilitySelector: IsActingInt=%d Controller=%s Pawn=%s Target=%s DistanceKey=%d"), IsActingInt, *GetNameSafe(OwnerComp.GetAIOwner()), *GetNameSafe(OwnerComp.GetAIOwner() ? OwnerComp.GetAIOwner()->GetPawn() : nullptr), *GetNameSafe(Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")))), (int)DistanceKey);
+
     if (IsActingInt > 0)
     {
+        UE_LOG(LogTemp, Warning, TEXT("testinghere IsActing skip (IsActingInt>0) Controller=%s"), *GetNameSafe(OwnerComp.GetAIOwner()));
         return;
     }
     if (BB->GetValueAsBool(FName("IsActing")))
     {
+        UE_LOG(LogTemp, Warning, TEXT("testinghere IsActing skip (IsActing=true) Controller=%s"), *GetNameSafe(OwnerComp.GetAIOwner()));
         return;
     }
 
@@ -72,42 +78,57 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
 
     if (!AI)
     {
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] ASeattleAI cast failed for Pawn=%s"), *GetNameSafe(Pawn));
+        // AI cast failed
     }
 
     // Gather inputs
     AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
     float Distance = BB->GetValueAsFloat(FName("DistanceToTarget"));
+    // prefer direct distance calculation when possible
+    if (Target && AI)
+    {
+        Distance = FVector::Dist(Target->GetActorLocation(), AI->GetActorLocation());
+        BB->SetValueAsFloat(FName("DistanceToTarget"), Distance);
+    }
+
+    // If target is out of attack range, force MoveTo regardless of IsActing so AI closes distance
+    float MeleeRange = AI ? AI->MeleeRange : 0.f;
+    float EffectiveStopRange = MeleeRange - (AI ? AI->AttackBuffer : 0.f);
+    if (Distance > EffectiveStopRange)
+    {
+        int32 ChosenInt = (int32)ECombatAction::MoveTo;
+        // clear acting state so selector/task can immediately run MoveTo
+        BB->SetValueAsBool(FName("IsActing"), false);
+        BB->SetValueAsInt(FName("IsActingInt"), 0);
+        BB->SetValueAsInt(FName("BestAction"), ChosenInt);
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo override: AI=%s Distance=%.1f MeleeRange=%.1f EffectiveStopRange=%.1f"), *GetNameSafe(AI), Distance, MeleeRange, EffectiveStopRange);
+        return;
+    }
     bool bPlayerAttacking = BB->GetValueAsBool(FName("PlayerIsAttacking"));
     int32 CurrentStamina = BB->GetValueAsInt(FName("CurrentStamina"));
     bool bHasStamina = BB->GetValueAsBool(FName("HasStamina"));
 
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Evaluate - AI=%s Target=%s Distance=%.1f CurrentStamina=%d HasStamina=%d PlayerIsAttacking=%d IsActing=%d IsActingInt=%d"),
-        *GetNameSafe(AI), *GetNameSafe(Target), Distance, CurrentStamina, bHasStamina ? 1 : 0, bPlayerAttacking ? 1 : 0,
-        BB->GetValueAsBool(FName("IsActing")) ? 1 : 0, BB->GetValueAsInt(FName("IsActingInt")));
+    // Evaluation inputs gathered
 
-    // If target is out of attack range, force MoveTo as the only action: prioritize moving into range.
-    if (Distance > AttackRange)
+    // If target is out of attack range, prioritize MoveTo
+    if (Distance > EffectiveStopRange)
     {
         int32 ChosenInt = (int32)ECombatAction::MoveTo;
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Target out of range (Distance=%.1f AttackRange=%.1f) -> forcing MoveTo"), Distance, AttackRange);
         BB->SetValueAsInt(FName("BestAction"), ChosenInt);
-        int32 Verify = BB->GetValueAsInt(FName("BestAction"));
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Forced BestAction int=%d ReadBack=%d"), ChosenInt, Verify);
         return;
     }
 
     // If no stamina, deprioritize attacks/dodges
     if (!bHasStamina || CurrentStamina <= 0)
     {
-        // choose MoveTo when far, else Idle
-        ECombatAction Chosen = (Distance > AttackRange * 1.2f) ? ECombatAction::MoveTo : ECombatAction::Idle;
+        // choose MoveTo when far, else Idle (use authoritative MeleeRange)
+        ECombatAction Chosen = (Distance > MeleeRange * 1.2f) ? ECombatAction::MoveTo : ECombatAction::Idle;
         int32 ChosenInt = (int32)Chosen;
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] No stamina -> Selected %d (int)"), ChosenInt);
+
         BB->SetValueAsInt(FName("BestAction"), ChosenInt);
         // verify write
         int32 Verify = BB->GetValueAsInt(FName("BestAction"));
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Wrote BestAction int=%d ReadBack=%d"), ChosenInt, Verify);
+
         return;
     }
 
@@ -133,7 +154,7 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         // Only consider dodges if close enough, AI has stamina, and AI has enough stamina to slide
         if (!bHasStamina || Distance > DodgeRange || CurrentStamina < MinStaminaToSlide)
         {
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Player attacking but dodge rejected. HasStamina=%d Distance=%.1f DodgeRange=%.1f CurrentStamina=%d MinStaminaToSlide=%d"), bHasStamina ? 1 : 0, Distance, DodgeRange, CurrentStamina, MinStaminaToSlide);
+
             // deprioritize dodge actions
             Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideLeft;})->Value = 1.f;
             Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideRight;})->Value = 1.f;
@@ -148,11 +169,11 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
                 Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideLeft;})->Value = SlideLeftBase + FMath::FRandRange(0.f, SlideRandomRange);
                 Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideRight;})->Value = SlideRightBase + FMath::FRandRange(0.f, SlideRandomRange);
                 Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideBack;})->Value = SlideBackBase + FMath::FRandRange(0.f, SlideRandomRange);
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Player attacking -> dodge roll=%.2f DodgeChance=%.2f"), dodgeRoll, DodgeChance);
+
             }
             else
             {
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Player attacking -> dodge roll failed (%.2f)"), dodgeRoll);
+
             }
         }
     }
@@ -165,18 +186,18 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         if (TimeSinceJab < JabCooldown)
         {
             Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::Jab;})->Value = 1.f;
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Jab penalized due to cooldown (since=%.2f cooldown=%.2f)"), TimeSinceJab, JabCooldown);
+
         }
         float TimeSinceHook = Now - AI->LastHookTime;
         if (TimeSinceHook < HookCooldown)
         {
             Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::Hook;})->Value = 1.f;
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Hook penalized due to cooldown (since=%.2f cooldown=%.2f)"), TimeSinceHook, HookCooldown);
+
         }
     }
 
     // Attack vs distance
-    if (Distance <= AttackRange)
+    if (Distance <= MeleeRange)
     {
         // Jab favored due to speed
         Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::Jab;})->Value = JabBaseScore + FMath::FRandRange(0.f, JabRandomRange);
@@ -185,10 +206,10 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         // small chance to step forward and attack (less likely when already in range)
         Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideForward;})->Value = MoveToCloseScore * 0.5f;
     }
-    else if (Distance <= AttackRange * 1.5f)
+    else if (Distance <= MeleeRange * 1.5f)
     {
         // close but just outside: prefer SlideForward only if within padding beyond AttackRange
-        if (Distance <= AttackRange + SlideForwardPadding)
+        if (Distance <= MeleeRange + SlideForwardPadding)
         {
             Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideForward;})->Value = SlideForwardNearScore + FMath::FRandRange(0.f, SlideForwardRandom);
         }
@@ -196,7 +217,7 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         {
             // otherwise prefer MoveTo
             Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::SlideForward;})->Value = SlideForwardFarScore;
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] SlideForward rejected because target too far for forward slide (Distance=%.1f AttackRange=%.1f Padding=%.1f)"), Distance, AttackRange, SlideForwardPadding);
+
         }
         Scores.FindByPredicate([&](const TPair<ECombatAction,float>& P){return P.Key==ECombatAction::MoveTo;})->Value = MoveToCloseScore + FMath::FRandRange(0.f,20.f);
     }
@@ -212,6 +233,40 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         Pair.Value += FMath::FRandRange(-5.f, 5.f);
     }
 
+    // Apply repeat penalties based on recent actions recorded on AI (reduce scores, do not forbid)
+    if (AI)
+    {
+        // Count occurrences in recent actions
+        for (auto& Pair : Scores)
+        {
+            int32 Count = 0;
+            for (auto& Recent : AI->RecentActions)
+            {
+                if ((ECombatAction)Recent == Pair.Key) Count++;
+            }
+            if (Count > 0)
+            {
+                float Penalty = 0.f;
+                switch (Pair.Key)
+                {
+                    case ECombatAction::Jab: Penalty = JabRepeatPenalty * Count; break;
+                    case ECombatAction::Hook: Penalty = HookRepeatPenalty * Count; break;
+                    case ECombatAction::SlideLeft:
+                    case ECombatAction::SlideRight:
+                    case ECombatAction::SlideForward:
+                    case ECombatAction::SlideBack: Penalty = SlideRepeatPenalty * Count; break;
+                    default: Penalty = 0.f; break;
+                }
+                if (Penalty > 0.f)
+                {
+                    Pair.Value = FMath::Max(0.f, Pair.Value - Penalty);
+                    FString ActionName = StaticEnum<ECombatAction>()->GetNameStringByValue((int64)Pair.Key);
+                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI Applying repeat penalty to %s (count=%d penalty=%.1f) NewScore=%.2f"), *ActionName, Count, Penalty, Pair.Value);
+                }
+            }
+        }
+    }
+
     // pick highest score
     ECombatAction Best = ECombatAction::Idle;
     float BestScore = -FLT_MAX;
@@ -224,62 +279,47 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
         }
     }
 
-    // log each score
-    for (const auto& Pair : Scores)
+    // Single consolidated score line for easy filtering/debugging
     {
-        FString Name;
-        switch (Pair.Key)
+        FString Consolidated = TEXT("");
+        for (const auto& P : Scores)
         {
-            case ECombatAction::Jab: Name = TEXT("Jab"); break;
-            case ECombatAction::Hook: Name = TEXT("Hook"); break;
-            case ECombatAction::SlideLeft: Name = TEXT("SlideLeft"); break;
-            case ECombatAction::SlideRight: Name = TEXT("SlideRight"); break;
-            case ECombatAction::SlideBack: Name = TEXT("SlideBack"); break;
-            case ECombatAction::SlideForward: Name = TEXT("SlideForward"); break;
-            case ECombatAction::MoveTo: Name = TEXT("MoveTo"); break;
-            case ECombatAction::Idle: Name = TEXT("Idle"); break;
-            default: Name = TEXT("Unknown"); break;
+            FString N;
+            switch (P.Key)
+            {
+                case ECombatAction::Jab: N = TEXT("Jab"); break;
+                case ECombatAction::Hook: N = TEXT("Hook"); break;
+                case ECombatAction::SlideLeft: N = TEXT("SlideLeft"); break;
+                case ECombatAction::SlideRight: N = TEXT("SlideRight"); break;
+                case ECombatAction::SlideBack: N = TEXT("SlideBack"); break;
+                case ECombatAction::SlideForward: N = TEXT("SlideForward"); break;
+                case ECombatAction::MoveTo: N = TEXT("MoveTo"); break;
+                case ECombatAction::Idle: N = TEXT("Idle"); break;
+                default: N = TEXT("Unknown"); break;
+            }
+            Consolidated += FString::Printf(TEXT("%s=%.2f "), *N, P.Value);
         }
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] %s Score = %.2f"), *Name, Pair.Value);
+        UE_LOG(LogTemp, Warning, TEXT("testinghere Scores: %s"), *Consolidated);
     }
 
-    // log each score
-    for (const auto& Pair : Scores)
-    {
-        FString Name;
-        switch (Pair.Key)
-        {
-            case ECombatAction::Jab: Name = TEXT("Jab"); break;
-            case ECombatAction::Hook: Name = TEXT("Hook"); break;
-            case ECombatAction::SlideLeft: Name = TEXT("SlideLeft"); break;
-            case ECombatAction::SlideRight: Name = TEXT("SlideRight"); break;
-            case ECombatAction::SlideBack: Name = TEXT("SlideBack"); break;
-            case ECombatAction::SlideForward: Name = TEXT("SlideForward"); break;
-            case ECombatAction::MoveTo: Name = TEXT("MoveTo"); break;
-            case ECombatAction::Idle: Name = TEXT("Idle"); break;
-            default: Name = TEXT("Unknown"); break;
-        }
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] %s Score = %.2f"), *Name, Pair.Value);
-    }
-
-    // write to blackboard as integer (ensure ExecuteTask reads same key)
+    // scoring evaluation complete
     int32 BestIntVal = (int32)Best;
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] About to write BestAction int=%d (key=BestAction)"), BestIntVal);
-    BB->SetValueAsInt(FName("BestAction"), BestIntVal);
-    int32 ReadBack = BB->GetValueAsInt(FName("BestAction"));
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Wrote BestAction int=%d ReadBack=%d"), BestIntVal, ReadBack);
-    FString BestName;
-    switch (Best)
+    // Log chosen action for debugging
     {
-        case ECombatAction::Jab: BestName = TEXT("Jab"); break;
-        case ECombatAction::Hook: BestName = TEXT("Hook"); break;
-        case ECombatAction::SlideLeft: BestName = TEXT("SlideLeft"); break;
-        case ECombatAction::SlideRight: BestName = TEXT("SlideRight"); break;
-        case ECombatAction::SlideBack: BestName = TEXT("SlideBack"); break;
-        case ECombatAction::SlideForward: BestName = TEXT("SlideForward"); break;
-        case ECombatAction::MoveTo: BestName = TEXT("MoveTo"); break;
-        case ECombatAction::Idle: BestName = TEXT("Idle"); break;
-        default: BestName = TEXT("Unknown"); break;
+        FString BestName;
+        switch (Best)
+        {
+            case ECombatAction::Jab: BestName = TEXT("Jab"); break;
+            case ECombatAction::Hook: BestName = TEXT("Hook"); break;
+            case ECombatAction::SlideLeft: BestName = TEXT("SlideLeft"); break;
+            case ECombatAction::SlideRight: BestName = TEXT("SlideRight"); break;
+            case ECombatAction::SlideBack: BestName = TEXT("SlideBack"); break;
+            case ECombatAction::SlideForward: BestName = TEXT("SlideForward"); break;
+            case ECombatAction::MoveTo: BestName = TEXT("MoveTo"); break;
+            case ECombatAction::Idle: BestName = TEXT("Idle"); break;
+            default: BestName = TEXT("Unknown"); break;
+        }
+        UE_LOG(LogTemp, Warning, TEXT("testinghere Selected=%s BestScore=%.2f"), *BestName, BestScore);
     }
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UtilitySelector] Selected BestAction = %s BestScore = %.2f"), *BestName, BestScore);
+    BB->SetValueAsInt(FName("BestAction"), BestIntVal);
 }

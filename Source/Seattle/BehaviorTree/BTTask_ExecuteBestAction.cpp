@@ -16,31 +16,29 @@ UBTTask_ExecuteBestAction::UBTTask_ExecuteBestAction()
 
 EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
+    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI testinghere this meant execute task actually ran"));
+
     UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
     if (!BB)
     {
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Blackboard is null"));
         return EBTNodeResult::Failed;
     }
 
     AAIController* AICon = OwnerComp.GetAIOwner();
     if (!AICon)
     {
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] AIController is null"));
         return EBTNodeResult::Failed;
     }
 
     APawn* Pawn = AICon->GetPawn();
     if (!Pawn)
     {
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Pawn is null (Controller=%s)"), *GetNameSafe(AICon));
         return EBTNodeResult::Failed;
     }
 
     ASeattleAI* AI = Cast<ASeattleAI>(Pawn);
     if (!AI)
     {
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] ASeattleAI cast failed for Pawn=%s"), *GetNameSafe(Pawn));
         return EBTNodeResult::Failed;
     }
 
@@ -49,19 +47,13 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
 
     // Log raw read and verify key id
     const int32 BestKeyId = BB->GetKeyID(FName("BestAction"));
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Read BestAction raw int=%d (BlackboardKeyId=%d)"), BestInt, BestKeyId);
 
-    // Log entry
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] ExecuteTask begin - AI=%s BestAction=%d Target=%s CurrentStamina=%d WillWait=%d"),
-        *GetNameSafe(AI), BestInt, *GetNameSafe(Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")))), BB->GetValueAsInt(FName("CurrentStamina")), bWaitForAction ? 1 : 0);
-
-    // mark acting (set both Bool and Int forms for editor compatibility) and log changes
+    // mark acting (set both Bool and Int forms for editor compatibility)
     bool PrevBool = BB->GetValueAsBool(FName("IsActing"));
     int32 PrevInt = BB->GetValueAsInt(FName("IsActingInt"));
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] IsActing previous: Bool=%d Int=%d"), PrevBool ? 1 : 0, PrevInt);
     BB->SetValueAsBool(FName("IsActing"), true);
     BB->SetValueAsInt(FName("IsActingInt"), 1);
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] IsActing new: Bool=1 Int=1"));
+
 
     // Execute
     float ActionDuration = 0.1f;
@@ -72,7 +64,6 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
     {
         // pick left or right randomly
         const bool bRight = FMath::FRand() > 0.5f;
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Executing Jab (%s)"), bRight ? TEXT("Right") : TEXT("Left"));
         UAnimMontage* Montage = bRight ? AI->RightJabMontage : AI->LeftAttackMontage;
         float PlayRate = bRight ? AI->RightJabPlayRate : AI->LeftAttackPlayRate;
         if (Montage)
@@ -81,14 +72,14 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
             float Dist = BB->GetValueAsFloat(FName("DistanceToTarget"));
             if (Dist > AI->MeleeRange)
             {
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Jab rejected: Target too far (Dist=%.1f MeleeRange=%.1f). Switching to MoveTo."), Dist, AI->MeleeRange);
                 // fallback to MoveTo
                 AActor* TargetActor = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
                 if (TargetActor)
                 {
-                    const float Acceptance = FMath::Max(10.f, AI->MeleeRange - 5.f);
+                    // Compute acceptance derived from AI melee range and buffer so we stop slightly inside melee range
+                    const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer);
+                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
                     EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(TargetActor, Acceptance);
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Fallback MoveToActor result=%d (Acceptance=%.1f)"), (int)MoveResult, Acceptance);
                     if (MoveResult == EPathFollowingRequestResult::RequestSuccessful || MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
                     {
                         FExecActionMemory* Memory = (FExecActionMemory*)NodeMemory;
@@ -102,7 +93,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                     }
                     else
                     {
-                        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Fallback MoveTo failed, clearing IsActing"));
+
                         BB->SetValueAsBool(FName("IsActing"), false);
                         BB->SetValueAsInt(FName("IsActingInt"), 0);
                         if (AICon->BrainComponent) AICon->BrainComponent->RestartLogic();
@@ -117,11 +108,9 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                 if (OwnerComp.GetWorld())
                 {
                     AI->LastJabTime = OwnerComp.GetWorld()->GetTimeSeconds();
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Recorded LastJabTime=%.3f"), AI->LastJabTime);
                 }
                 ActionDuration = Montage->GetPlayLength() / FMath::Max(PlayRate, 0.0001f);
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Started Montage=%s PlayLength=%.3f PlayRate=%.3f"), Montage ? *Montage->GetName() : TEXT("null"), Montage->GetPlayLength(), PlayRate);
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Attacking immediately after entering range"));
+
             }
         }
         break;
@@ -129,7 +118,6 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
     case ECombatAction::Hook:
     {
         const bool bRight = FMath::FRand() > 0.5f;
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Executing Hook (%s)"), bRight ? TEXT("Right") : TEXT("Left"));
         UAnimMontage* Montage = bRight ? AI->RightHookMontage : AI->LeftHookMontage;
         float PlayRate = bRight ? AI->RightHookPlayRate : AI->LeftHookPlayRate;
         if (Montage)
@@ -138,13 +126,12 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
             float Dist = BB->GetValueAsFloat(FName("DistanceToTarget"));
             if (Dist > AI->MeleeRange)
             {
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Hook rejected: Target too far (Dist=%.1f MeleeRange=%.1f). Switching to MoveTo."), Dist, AI->MeleeRange);
                 AActor* TargetActor = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
                 if (TargetActor)
                 {
-                    const float Acceptance = FMath::Max(10.f, AI->MeleeRange - 5.f);
+                    const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer);
+                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
                     EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(TargetActor, Acceptance);
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Fallback MoveToActor result=%d (Acceptance=%.1f)"), (int)MoveResult, Acceptance);
                     if (MoveResult == EPathFollowingRequestResult::RequestSuccessful || MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
                     {
                         FExecActionMemory* Memory = (FExecActionMemory*)NodeMemory;
@@ -158,7 +145,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                     }
                     else
                     {
-                        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Fallback MoveTo failed, clearing IsActing"));
+
                         BB->SetValueAsBool(FName("IsActing"), false);
                         BB->SetValueAsInt(FName("IsActingInt"), 0);
                         if (AICon->BrainComponent) AICon->BrainComponent->RestartLogic();
@@ -166,18 +153,19 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                     }
                 }
             }
-            else
-            {
-                AI->RequestPlayAttackMontage(Montage, PlayRate);
-                // record hook time for cooldown
-                if (OwnerComp.GetWorld())
+                else
                 {
-                    AI->LastHookTime = OwnerComp.GetWorld()->GetTimeSeconds();
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Recorded LastHookTime=%.3f"), AI->LastHookTime);
-                }
-                ActionDuration = Montage->GetPlayLength() / FMath::Max(PlayRate, 0.0001f);
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Started Montage=%s PlayLength=%.3f PlayRate=%.3f"), Montage ? *Montage->GetName() : TEXT("null"), Montage->GetPlayLength(), PlayRate);
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Attacking immediately after entering range"));
+                    AI->RequestPlayAttackMontage(Montage, PlayRate);
+                    // record hook time for cooldown
+                    if (OwnerComp.GetWorld())
+                    {
+                        AI->LastHookTime = OwnerComp.GetWorld()->GetTimeSeconds();
+                    }
+                    // record action history
+                    AI->RecordAction(ECombatAction::Hook);
+                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=Hook"));
+                    ActionDuration = Montage->GetPlayLength() / FMath::Max(PlayRate, 0.0001f);
+
             }
         }
         break;
@@ -213,6 +201,12 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
             }
         }
         AI->DoAISlide(Dir);
+        // record slide action
+        if (BestAction == ECombatAction::SlideLeft) AI->RecordAction(ECombatAction::SlideLeft);
+        else if (BestAction == ECombatAction::SlideRight) AI->RecordAction(ECombatAction::SlideRight);
+        else if (BestAction == ECombatAction::SlideBack) AI->RecordAction(ECombatAction::SlideBack);
+        else AI->RecordAction(ECombatAction::SlideForward);
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=%s"), *StaticEnum<ECombatAction>()->GetNameStringByValue((int64)BestAction));
         ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
         break;
     }
@@ -221,22 +215,21 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
         if (Target)
         {
-            const float Acceptance = FMath::Max(10.f, AI->MeleeRange - 5.f); // use attack range as acceptance, slightly inside to ensure in-range
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Executing MoveTo Target=%s AcceptanceRadius=%.1f"), *GetNameSafe(Target), Acceptance);
+            const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer); // aim to stop inside melee range
+            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
             EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(Target, Acceptance);
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] MoveToActor result=%d"), (int)MoveResult);
+
             // If move request started, poll distance and trigger immediate reevaluation when within range
             if (MoveResult == EPathFollowingRequestResult::RequestSuccessful || MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
             {
                 FExecActionMemory* Memory = (FExecActionMemory*)NodeMemory;
                 UWorld* World = OwnerComp.GetWorld();
-                if (World)
-                {
-                    FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &UBTTask_ExecuteBestAction::OnMovePoll, &OwnerComp, NodeMemory);
-                    World->GetTimerManager().SetTimer(Memory->TimerHandle, Delegate, 0.05f, true);
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] MoveTo started, polling for arrival (every 0.05s)"));
-                    return EBTNodeResult::InProgress;
-                }
+                    if (World)
+                    {
+                        FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &UBTTask_ExecuteBestAction::OnMovePoll, &OwnerComp, NodeMemory);
+                        World->GetTimerManager().SetTimer(Memory->TimerHandle, Delegate, 0.05f, true);
+                        return EBTNodeResult::InProgress;
+                    }
             }
             else
             {
@@ -271,7 +264,6 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         {
             FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &UBTTask_ExecuteBestAction::OnActionTimerExpired, &OwnerComp, NodeMemory);
             World->GetTimerManager().SetTimer(Memory->TimerHandle, Delegate, ActionDuration, false);
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Waiting for action duration=%.3f seconds"), ActionDuration);
             return EBTNodeResult::InProgress;
         }
     }
@@ -282,13 +274,14 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
         BB->SetValueAsBool(FName("IsActing"), false);
         BB->SetValueAsInt(FName("IsActingInt"), 0);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] IsActing changed: previous Bool=%d Int=%d -> new Bool=0 Int=0"), PrevB ? 1 : 0, PrevI);
     }
     return EBTNodeResult::Succeeded;
 }
 
 EBTNodeResult::Type UBTTask_ExecuteBestAction::AbortTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
+
+
     FExecActionMemory* Memory = (FExecActionMemory*)NodeMemory;
     if (OwnerComp.GetWorld())
     {
@@ -301,15 +294,14 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::AbortTask(UBehaviorTreeComponent&
         int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
         BB->SetValueAsBool(FName("IsActing"), false);
         BB->SetValueAsInt(FName("IsActingInt"), 0);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Action Aborted. IsActing previous: Bool=%d Int=%d -> new Bool=0 Int=0"), PrevB ? 1 : 0, PrevI);
     }
-
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Action Aborted"));
     return EBTNodeResult::Aborted;
 }
 
 void UBTTask_ExecuteBestAction::OnActionTimerExpired(UBehaviorTreeComponent* OwnerComp, uint8* NodeMemory)
 {
+
+    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI ONACTION TIMER EXPIRED"));
     if (!OwnerComp) return;
     if (UBlackboardComponent* BB = OwnerComp->GetBlackboardComponent())
     {
@@ -360,14 +352,15 @@ void UBTTask_ExecuteBestAction::OnMovePoll(UBehaviorTreeComponent* OwnerComp, ui
         int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
         BB->SetValueAsBool(FName("IsActing"), false);
         BB->SetValueAsInt(FName("IsActingInt"), 0);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] MoveTo reached AttackRange: Distance=%.1f MeleeRange=%.1f. IsActing previous: Bool=%d Int=%d -> new Bool=0 Int=0"), Distance, AI->MeleeRange, PrevB ? 1 : 0, PrevI);
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo finished. DistanceToTarget=%.1f MeleeRange=%.1f"), Distance, AI->MeleeRange);
 
         // trigger immediate BT reevaluation
-        if (AICon->BrainComponent)
-        {
-            AICon->BrainComponent->RestartLogic();
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] MoveTo completed - triggered immediate utility reevaluation via BrainComponent->RestartLogic()"));
-        }
+            if (AICon->BrainComponent)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI AI entered combat range: AI=%s"), *GetNameSafe(AI));
+                AICon->BrainComponent->RestartLogic();
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo completed - triggered immediate utility reevaluation via BrainComponent->RestartLogic()"));
+            }
 
         FinishLatentTask(*OwnerComp, EBTNodeResult::Succeeded);
     }
