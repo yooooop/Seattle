@@ -86,8 +86,7 @@ void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-    AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(UseClass, Location, FRotator::ZeroRotator, Params);
+     AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(UseClass, Location, FRotator::ZeroRotator, Params);
 	if (FX)
 	{
 		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFXClass: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *Location.ToString(), *GetNameSafe(UseClass->GetDefaultObject()));
@@ -349,28 +348,35 @@ void ASeattleCharacter::Client_PlayHitEffects_Implementation()
 
 void ASeattleCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
 {
-	if (!ImpactFXActorClass)
+    if (!ImpactFXActorClass)
 	{
+		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: ImpactFXActorClass is null on %s"), *GetNameSafe(this));
 		return;
 	}
 
 	UWorld* World = GetWorld();
 	if (!World)
 	{
+		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: World is null on %s"), *GetNameSafe(this));
 		return;
 	}
+
+	// Slight upward offset to avoid spawning inside geometry
+	FVector SpawnLocation = Location + FVector(0.f, 0.f, 6.f);
 
 	FActorSpawnParameters Params;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-    AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, Location, FRotator::ZeroRotator, Params);
-	if (FX)
+	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, SpawnLocation, FRotator::ZeroRotator, Params);
+    if (FX)
 	{
-		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFX: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *Location.ToString(), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()));
+		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFX: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *SpawnLocation.ToString(), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()));
+		UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [SeattleCharacter] Multicast_SpawnImpactFX spawned FX at %s"), *SpawnLocation.ToString());
 	}
 	else
 	{
-		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: Failed to spawn FX class %s at %s"), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()), *Location.ToString());
+		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: Failed to spawn FX class %s at %s"), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()), *SpawnLocation.ToString());
+		UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [SeattleCharacter] Multicast_SpawnImpactFX FAILED at %s"), *SpawnLocation.ToString());
 	}
 }
 

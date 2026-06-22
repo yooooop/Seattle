@@ -18,6 +18,21 @@ class ASeattleGameMode : public AGameModeBase
 	GENERATED_BODY()
 
 public:
+	/** Reset the match to initial state (server only) */
+	UFUNCTION(BlueprintCallable, Category = "Match")
+	void ResetMatch();
+
+protected:
+	virtual void BeginPlay() override;
+
+	/** Stored initial transforms for actors to restore on reset */
+	TMap<TWeakObjectPtr<AActor>, FTransform> InitialActorTransforms;
+	/** Stored initial health values for actors */
+	TMap<TWeakObjectPtr<AActor>, float> InitialActorHealth;
+	/** Stored initial stamina values for actors (if any) */
+	TMap<TWeakObjectPtr<AActor>, float> InitialActorStamina;
+
+public:
 	
 	/** Constructor */
 	ASeattleGameMode();

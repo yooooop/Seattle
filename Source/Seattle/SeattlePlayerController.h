@@ -48,6 +48,10 @@ public:
 	UFUNCTION(Server, Reliable, WithValidation)
 	void Server_NotifyEndGame();
 
+	/** Client requests the server to reset the match to initial state (called after end sequence completes) */
+	UFUNCTION(Server, Reliable, WithValidation)
+	void Server_RequestMatchReset();
+
 	/** Server calls this on clients to instruct them to hide their main menu/start the game */
 	UFUNCTION(Client, Reliable)
 	void Client_StartGame();

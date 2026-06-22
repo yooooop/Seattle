@@ -186,18 +186,24 @@ void ASeattleAI::DoAISlide(FVector Direction)
 
 	if (!StaminaComponent->HasEnoughStamina())
 	{
-		UE_LOG(LogSeattle, Log, TEXT("%s DoAISlide: Not enough stamina"), *GetName());
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] %s DoAISlide: Not enough stamina"), *GetName());
 		return;
 	}
 
 	// consume stamina and perform slide
-	StaminaComponent->ConsumeStamina();
+    {
+		float Prev = StaminaComponent->GetStaminaPercent();
+		bool bConsumed = StaminaComponent->ConsumeStamina();
+		float New = StaminaComponent->GetStaminaPercent();
+		UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] %s DoAISlide: PrevStamina=%.3f NewStamina=%.3f Consumed=%d"), *GetName(), Prev, New, bConsumed ? 1 : 0);
+	}
 
 	const FVector SlideDir = Direction.IsNearlyZero() ? GetActorForwardVector() : Direction.GetSafeNormal();
 	const FVector Velocity = SlideDir * SlideDistance / FMath::Max(SlideDuration, 0.01f);
 
+	UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] %s DoAISlide: Direction=%s Velocity=%s Duration=%.3f"), *GetName(), *SlideDir.ToString(), *Velocity.ToString(), SlideDuration);
 	LaunchCharacter(Velocity, true, true);
-	UE_LOG(LogSeattle, Log, TEXT("%s DoAISlide: Launched with vel %s"), *GetName(), *Velocity.ToString());
+	UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] %s DoAISlide: Launched with vel %s"), *GetName(), *Velocity.ToString());
 }
 
 float ASeattleAI::GetStaminaPercent() const
@@ -412,10 +418,15 @@ void ASeattleAI::RequestPlayAttackMontage(UAnimMontage* Montage, float PlayRate)
 		{
 			if (!StaminaComponent->HasEnoughStamina())
 			{
-				UE_LOG(LogSeattle, Log, TEXT("%s RequestPlayAttackMontage: Not enough stamina on server"), *GetName());
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] %s RequestPlayAttackMontage: Not enough stamina on server"), *GetName());
 				return;
 			}
-			StaminaComponent->ConsumeStamina();
+            {
+				float Prev = StaminaComponent->GetStaminaPercent();
+				bool b = StaminaComponent->ConsumeStamina();
+				float New = StaminaComponent->GetStaminaPercent();
+				UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] %s RequestPlayAttackMontage: PrevStamina=%.3f NewStamina=%.3f Consumed=%d"), *GetName(), Prev, New, b ? 1 : 0);
+			}
 		}
 
 		UE_LOG(LogSeattle, Log, TEXT("%s RequestPlayAttackMontage: HasAuthority -> calling Multicast. Montage=%s PlayRate=%f"), *GetName(), *Montage->GetName(), PlayRate);

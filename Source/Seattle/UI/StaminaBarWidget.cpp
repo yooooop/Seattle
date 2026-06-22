@@ -19,3 +19,13 @@ void UStaminaBarWidget::SetStaminaPercent(float InPercent)
         StaminaBar->SetPercent(FMath::Clamp(InPercent, 0.0f, 1.0f));
     }
 }
+
+void UStaminaBarWidget::SetIsOpponent(bool bOpponent)
+{
+    bIsOpponent = bOpponent;
+    if (StaminaBar)
+    {
+        const FVector2D Scale = bIsOpponent ? FVector2D(-1.f, 1.f) : FVector2D(1.f, 1.f);
+        StaminaBar->SetRenderScale(Scale);
+    }
+}

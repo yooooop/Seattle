@@ -345,10 +345,35 @@ void ASeattleHUD::UpdateEndSequence(float DeltaTime)
 void ASeattleHUD::OnEndSequenceFinished()
 {
     // Hide end UI and return to main menu locally
+    // Hide end UI and in-game UI, clear overlays
     HideEndScreen();
+    if (GeneralInGameWidget)
+    {
+        GeneralInGameWidget->RemoveFromParent();
+    }
+    if (DamageOverlayWidget)
+    {
+        DamageOverlayWidget->SetVisibility(ESlateVisibility::Collapsed);
+        DamageOverlayWidget->SetRenderOpacity(0.f);
+    }
+    if (SlideOverlayWidget)
+    {
+        SlideOverlayWidget->SetVisibility(ESlateVisibility::Collapsed);
+        SlideOverlayWidget->SetRenderOpacity(0.f);
+    }
 
-    // Show main menu UI again
+    // Show main menu UI again (ensure it is added back to viewport)
     ShowMainMenu();
+
+    // Request server to reset match state (so all actors/variables are restored)
+    if (APlayerController* PC = GetOwningPlayerController())
+    {
+        if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
+        {
+            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [HUD] Requesting server match reset from client %s"), *GetNameSafe(PC));
+            SPC->Server_RequestMatchReset();
+        }
+    }
 
     // Clear any lingering timers
     GetWorldTimerManager().ClearTimer(EndSequenceTimerHandle);
@@ -501,6 +526,11 @@ void ASeattleHUD::ShowMainMenu()
 {
     if (MainMenuWidget)
     {
+        // Ensure the main menu is added to the viewport (it may have been removed earlier)
+        if (!MainMenuWidget->IsInViewport())
+        {
+            MainMenuWidget->AddToViewport(10);
+        }
         MainMenuWidget->SetVisibility(ESlateVisibility::Visible);
         MainMenuWidget->SetRenderOpacity(1.f);
         MainMenuWidget->SetDesiredSizeInViewport(FVector2D(1920, 1080));

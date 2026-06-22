@@ -19,6 +19,13 @@ public:
     UFUNCTION(BlueprintCallable, Category="UI")
     void SetStaminaPercent(float InPercent);
 
+    /** Mark this widget as representing an opponent so it can flip fill direction */
+    UFUNCTION(BlueprintCallable, Category="UI")
+    void SetIsOpponent(bool bOpponent);
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="UI")
+    bool bIsOpponent = false;
+
 protected:
     /** Progress bar bound to the Blueprint widget */
     UPROPERTY(meta = (BindWidget))

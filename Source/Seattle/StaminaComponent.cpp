@@ -34,6 +34,7 @@ void UStaminaComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 void UStaminaComponent::OnRep_CurrentStamina()
 {
     // Broadcast to listeners (UI, etc.)
+    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [StaminaComponent] OnRep_CurrentStamina - Current=%.3f Max=%.3f Owner=%s"), CurrentStamina, MaxStamina, *GetNameSafe(GetOwner()));
     OnStaminaChanged.Broadcast(CurrentStamina, MaxStamina);
 }
 
@@ -48,7 +49,7 @@ bool UStaminaComponent::ConsumeStamina(float Cost)
     // Only server can consume stamina
     if (GetOwnerRole() != ROLE_Authority)
     {
-        UE_LOG(LogSeattle, Warning, TEXT("UStaminaComponent::ConsumeStamina called on non-authority. Owner=%s"), *GetNameSafe(GetOwner()));
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [StaminaComponent] ConsumeStamina called on non-authority. Owner=%s"), *GetNameSafe(GetOwner()));
         return false;
     }
 
@@ -56,15 +57,16 @@ bool UStaminaComponent::ConsumeStamina(float Cost)
 
     if (!HasEnoughStamina(ActualCost))
     {
-        UE_LOG(LogSeattle, Log, TEXT("UStaminaComponent::ConsumeStamina failed - not enough stamina. Current=%f Required=%f Owner=%s"), 
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [StaminaComponent] ConsumeStamina failed - not enough stamina. Current=%.3f Required=%.3f Owner=%s"), 
             CurrentStamina, ActualCost, *GetNameSafe(GetOwner()));
         return false;
     }
 
+    const float Prev = CurrentStamina;
     CurrentStamina = FMath::Clamp(CurrentStamina - ActualCost, 0.0f, MaxStamina);
 
-    UE_LOG(LogSeattle, Log, TEXT("UStaminaComponent::ConsumeStamina success. Current=%f Cost=%f Owner=%s"), 
-        CurrentStamina, ActualCost, *GetNameSafe(GetOwner()));
+    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [StaminaComponent] ConsumeStamina success. Owner=%s Prev=%.3f New=%.3f Cost=%.3f"),
+        *GetNameSafe(GetOwner()), Prev, CurrentStamina, ActualCost);
 
     // Notify clients of stamina change
     OnStaminaChanged.Broadcast(CurrentStamina, MaxStamina);

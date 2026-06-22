@@ -136,7 +136,18 @@ void ACombatCharacter::Server_PerformMeleeAttack_Implementation(FVector AimDirec
 
 			if (ImpactFXActorClass)
 			{
-				Multicast_SpawnImpactFX(Hit.ImpactPoint);
+           // Ensure impact FX spawns slightly offset along the impact normal so it is visible and not embedded in geometry
+			FVector SpawnLoc = Hit.ImpactPoint;
+			if (!Hit.ImpactNormal.IsNearlyZero())
+			{
+				SpawnLoc += Hit.ImpactNormal * 8.0f;
+			}
+			else
+			{
+				SpawnLoc += FVector(0.f, 0.f, 8.f);
+			}
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [CombatCharacter] Spawning impact FX at %s (adjusted from ImpactPoint=%s)"), *SpawnLoc.ToString(), *Hit.ImpactPoint.ToString());
+				Multicast_SpawnImpactFX(SpawnLoc);
 			}
 		}
 	}

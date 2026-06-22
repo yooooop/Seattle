@@ -330,8 +330,8 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "VFX")
 	TSubclassOf<class AImpactFXActor> ImpactFXActorClass;
 
- UFUNCTION(NetMulticast, Unreliable)
-	void Multicast_SpawnImpactFX(FVector Location);
+ UFUNCTION(NetMulticast, Reliable)
+ void Multicast_SpawnImpactFX(FVector Location);
 
 	/** Aim-based server melee attack (so combat variant uses same authoritative path) */
 	UFUNCTION(BlueprintCallable, Category = "Combat")

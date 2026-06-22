@@ -13,6 +13,7 @@ void UGeneralInGameUI::NativeConstruct()
     if (OpponentHealthBar)
     {
         OpponentHealthBar->SetHealthPercent(1.0f);
+        OpponentHealthBar->SetIsOpponent(true);
     }
     if (PlayerStaminaBar)
     {
@@ -21,6 +22,7 @@ void UGeneralInGameUI::NativeConstruct()
     if (OpponentStaminaBar)
     {
         OpponentStaminaBar->SetStaminaPercent(1.0f);
+        OpponentStaminaBar->SetIsOpponent(true);
     }
 }
 

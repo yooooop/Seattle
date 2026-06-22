@@ -31,6 +31,9 @@ void UHealthBarWidget::SetIsOpponent(bool bOpponent)
     {
         const FLinearColor BarColor = bIsOpponent ? FLinearColor(1.f, 0.f, 0.f, 1.f) : FLinearColor(0.f, 1.f, 0.f, 1.f);
         HealthBar->SetFillColorAndOpacity(BarColor);
+        // Flip the progress bar horizontally for opponents so it fills right-to-left
+        const FVector2D Scale = bIsOpponent ? FVector2D(-1.f, 1.f) : FVector2D(1.f, 1.f);
+        HealthBar->SetRenderScale(Scale);
     }
 
     // Show/hide left/right icons depending on role

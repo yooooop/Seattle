@@ -53,6 +53,13 @@ public:
 	UPROPERTY(ReplicatedUsing = OnRep_ActiveAttackType, BlueprintReadOnly, EditAnywhere, Category = "Animation")
 	ESeattleAttackType ActiveAttackType = ESeattleAttackType::None;
 
+	/** Last timestamps for attack cooldowns (server time) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
+	float LastJabTime = -10000.f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
+	float LastHookTime = -10000.f;
+
 	/** Montages for AI attacks (assign in BP) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
 	UAnimMontage* LeftAttackMontage = nullptr;

@@ -55,6 +55,8 @@ void ASeattleAIController::OnPossess(APawn* InPawn)
 {
     Super::OnPossess(InPawn);
 
+    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] OnPossess called. Controller=%s PossessedPawn=%s"), *GetNameSafe(this), *GetNameSafe(InPawn));
+
     // Initialize blackboard if behavior tree is assigned
     if (BehaviorTreeAsset)
     {
@@ -62,6 +64,14 @@ void ASeattleAIController::OnPossess(APawn* InPawn)
         if (!BlackboardComp && BehaviorTreeAsset->BlackboardAsset)
         {
             UseBlackboard(BehaviorTreeAsset->BlackboardAsset, BlackboardComp);
+            if (BlackboardComp)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] Blackboard initialized: %s"), *GetNameSafe(BehaviorTreeAsset->BlackboardAsset));
+            }
+            else
+            {
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] Blackboard initialization FAILED: asset=%s"), *GetNameSafe(BehaviorTreeAsset->BlackboardAsset));
+            }
         }
     }
 }
@@ -70,14 +80,14 @@ void ASeattleAIController::StartAI()
 {
     if (!BehaviorTreeAsset)
     {
-        UE_LOG(LogSeattle, Warning, TEXT("SeattleAIController::StartAI - No BehaviorTreeAsset assigned on %s"), *GetNameSafe(this));
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] StartAI - No BehaviorTreeAsset assigned on %s"), *GetNameSafe(this));
         return;
     }
 
     // Run the behavior tree
     if (RunBehaviorTree(BehaviorTreeAsset))
     {
-        UE_LOG(LogSeattle, Log, TEXT("SeattleAIController::StartAI - Started behavior tree on %s"), *GetNameSafe(this));
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] StartAI - Started behavior tree on %s (BT=%s)"), *GetNameSafe(this), *GetNameSafe(BehaviorTreeAsset));
 
         // Get the player character and set it as the target
         if (UBlackboardComponent* BlackboardComp = GetBlackboardComponent())
@@ -91,17 +101,18 @@ void ASeattleAIController::StartAI()
                 // Set focus on the player character
                 SetFocus(PlayerCharacter);
 
-                UE_LOG(LogSeattle, Log, TEXT("SeattleAIController::StartAI - Set target and focus to %s"), *GetNameSafe(PlayerCharacter));
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] StartAI - Set target and focus to %s"), *GetNameSafe(PlayerCharacter));
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] Blackboard asset=%s, TargetActorKey=%s"), *GetNameSafe(BehaviorTreeAsset->BlackboardAsset), *TargetActorKeyName.ToString());
             }
             else
             {
-                UE_LOG(LogSeattle, Warning, TEXT("SeattleAIController::StartAI - Could not find player character"));
+                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] StartAI - Could not find player character"));
             }
         }
     }
     else
     {
-        UE_LOG(LogSeattle, Error, TEXT("SeattleAIController::StartAI - Failed to start behavior tree on %s"), *GetNameSafe(this));
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [AIController] StartAI - Failed to start behavior tree on %s"), *GetNameSafe(this));
     }
 }
 

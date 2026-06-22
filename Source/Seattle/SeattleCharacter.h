@@ -370,10 +370,10 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category = "VFX")
 	TSubclassOf<AImpactFXActor> ImpactFXActorClass;
 
-	UFUNCTION(NetMulticast, Unreliable)
+    UFUNCTION(NetMulticast, Reliable)
 	void Multicast_SpawnImpactFX(FVector Location);
 
-	UFUNCTION(NetMulticast, Unreliable)
+	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_SpawnImpactFXClass(TSubclassOf<AImpactFXActor> FXClass, FVector Location);
 
 	/** Melee attack tuning (used by player controller to request server melee) */

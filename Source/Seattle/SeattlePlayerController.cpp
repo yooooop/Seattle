@@ -35,6 +35,20 @@ ASeattlePlayerController::ASeattlePlayerController()
 	SharedLocalFollowCamera->SetActive(false);
 }
 
+bool ASeattlePlayerController::Server_RequestMatchReset_Validate()
+{
+	return true;
+}
+
+void ASeattlePlayerController::Server_RequestMatchReset_Implementation()
+{
+	UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [PlayerController] Server_RequestMatchReset_Implementation called by %s"), *GetNameSafe(this));
+	if (ASeattleGameMode* GM = GetWorld() ? GetWorld()->GetAuthGameMode<ASeattleGameMode>() : nullptr)
+	{
+		GM->ResetMatch();
+	}
+}
+
 void ASeattlePlayerController::Client_UpdateOpponentStamina_Implementation(float StaminaPercent)
 {
 	if (APlayerController* PC = Cast<APlayerController>(this))
@@ -140,7 +154,7 @@ void ASeattlePlayerController::HandleStartGameRequest()
 			if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
 			{
 				UE_LOG(LogSeattle, Log, TEXT("HandleStartGameRequest: Sending Client_PanSceneCapture to %s target=%s rot=%s dur=%f"), *GetNameSafe(SPC), *TargetLocation.ToString(), *TargetRotation.ToString(), LocalPanDuration);
-				SPC->Client_PanSceneCapture(TargetLocation, TargetRotation, LocalPanDuration);
+				//SPC->Client_PanSceneCapture(TargetLocation, TargetRotation, LocalPanDuration);
 			}
 		}
 	}
