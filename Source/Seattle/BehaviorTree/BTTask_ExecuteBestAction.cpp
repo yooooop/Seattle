@@ -16,7 +16,7 @@ UBTTask_ExecuteBestAction::UBTTask_ExecuteBestAction()
 
 EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI stestinghere this meant execute task actually ran"));
+  //  UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI stestinghere this meant execute task actually ran"));
 
     UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
     if (!BB)
@@ -158,7 +158,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                 if (TargetActor)
                 {
                     const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer);
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
+                   // UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
                     EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(TargetActor, Acceptance);
                     if (MoveResult == EPathFollowingRequestResult::RequestSuccessful || MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
                     {
@@ -197,7 +197,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                     }
                     // record action history
                     AI->RecordAction(ECombatAction::Hook);
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=Hook"));
+                 //   UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=Hook"));
                     ActionDuration = Montage->GetPlayLength() / FMath::Max(PlayRate, 0.0001f);
 
             }
@@ -216,7 +216,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         }
         AI->DoAISlide(Dir);
         AI->RecordAction(ECombatAction::SlideLeft);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideLeft"));
+    //    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideLeft"));
         ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
         break;
     }
@@ -233,14 +233,14 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         }
         AI->DoAISlide(Dir);
         AI->RecordAction(ECombatAction::SlideRight);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideRight"));
+     //   UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideRight"));
         ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
         break;
     }
 
     case ECombatAction::SlideBack:
     {
-        UE_LOG(LogTemp, Warning, TEXT("asdfjkl trying to slide back"));
+      //  UE_LOG(LogTemp, Warning, TEXT("asdfjkl trying to slide back"));
         AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
         FVector Dir = AI->GetActorForwardVector();
         if (Target)
@@ -260,7 +260,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         if (Target)
         {
             const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer); // aim to stop inside melee range
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
+       //     UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
             EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(Target, Acceptance);
 
             // If move request started, poll distance and trigger immediate reevaluation when within range
@@ -282,7 +282,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
             else
             {
                 // Move request failed; clear acting so selector can try another action
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] MoveTo request failed (result=%d). Clearing IsActing and restarting BT."), (int)MoveResult);
+       //         UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] MoveTo request failed (result=%d). Clearing IsActing and restarting BT."), (int)MoveResult);
                 if (UBlackboardComponent* BBB = OwnerComp.GetBlackboardComponent())
                 {
                     BBB->SetValueAsBool(FName("IsActing"), false);
@@ -299,7 +299,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
     }
     case ECombatAction::Idle:
     default:
-		UE_LOG(LogTemp, Warning, TEXT("stestinghere HUH?"));
+		//UE_LOG(LogTemp, Warning, TEXT("stestinghere HUH?"));
         // do nothing
         break;
     }

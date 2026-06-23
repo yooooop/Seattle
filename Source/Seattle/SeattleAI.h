@@ -233,7 +233,7 @@ public:
 
 	// Desired combat spacing
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float DesiredCombatDistance = 100.f;
+	float DesiredCombatDistance = 150.f;
 
 	// Used so retreat only happens once per health loss
 	UPROPERTY(VisibleAnywhere)

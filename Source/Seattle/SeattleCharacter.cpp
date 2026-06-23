@@ -73,7 +73,7 @@ ASeattleCharacter::ASeattleCharacter()
 void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<AImpactFXActor> FXClass, FVector Location)
 {
 
-	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 1st"));
+	UE_LOG(LogSeattle, Log, TEXT("spawned fx class testing"));
 	
 	TSubclassOf<AImpactFXActor> UseClass = FXClass ? FXClass : ImpactFXActorClass;
 	if (!UseClass)
@@ -82,7 +82,7 @@ void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<
 	}
 
 
-	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 2nd"));
+	//UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 2nd"));
 
 	UWorld* World = GetWorld();
 	if (!World)
@@ -91,7 +91,7 @@ void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<
 	}
 
 
-	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 3rd"));
+	//UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 3rd"));
 
 
 	FActorSpawnParameters Params;
@@ -99,7 +99,7 @@ void ASeattleCharacter::Multicast_SpawnImpactFXClass_Implementation(TSubclassOf<
      AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(UseClass, Location, FRotator::ZeroRotator, Params);
 	if (FX)
 	{
-		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFXClass: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *Location.ToString(), *GetNameSafe(UseClass->GetDefaultObject()));
+		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFXClass: Spawned FX class %s at %s (class=%s)"), *GetNameSafe(FX), *Location.ToString(), *GetNameSafe(UseClass->GetDefaultObject()));
 	}
 	else
 	{
@@ -118,7 +118,9 @@ float ASeattleCharacter::GetHealthPercent() const
 
 void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FVector& DamageLocation, const FVector& DamageImpulse)
 {
-    UE_LOG(LogSeattle, Log, TEXT("ASeattleCharacter::ApplyDamage called on %s by %s Damage=%f HasAuthority=%d"), *GetNameSafe(this), DamageCauser ? *GetNameSafe(DamageCauser) : TEXT("null"), Damage, HasAuthority() ? 1 : 0);
+   // UE_LOG(LogSeattle, Log, TEXT("ASeattleCharacter::ApplyDamage called on %s by %s Damage=%f HasAuthority=%d"), *GetNameSafe(this), DamageCauser ? *GetNameSafe(DamageCauser) : TEXT("null"), Damage, HasAuthority() ? 1 : 0);
+
+	UE_LOG(LogSeattle, Log, TEXT("fx class apply damage"));
 
 	if (!HasAuthority())
 	{
@@ -137,7 +139,7 @@ void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FV
 	}
 
 
-	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st"));
+	//UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st"));
 
     const float Previous = Health;
 	Health = FMath::Clamp(Health - Applied, 0.f, MaxHealth);
@@ -147,12 +149,12 @@ void ASeattleCharacter::ApplyDamage(float Damage, AActor* DamageCauser, const FV
 	// spawn different impact FX when hit by AI
 	if (DamageCauser && (DamageCauser->IsA(ASeattleAI::StaticClass()) || DamageCauser->IsA(ACombatEnemy::StaticClass())))
 	{
-		UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st"));
+		UE_LOG(LogSeattle, Log, TEXT("fx class apply damage"));
 		// prefer AI-specific FX class if set, otherwise fallback to generic
 		TSubclassOf<AImpactFXActor> UseClass = ImpactFXActorAIHitClass ? ImpactFXActorAIHitClass : ImpactFXActorClass;
 		if (UseClass)
 		{
-			UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 0th"));
+			UE_LOG(LogSeattle, Log, TEXT("fx class final fun"));
             // spawn via multicast so all clients see it
 			Multicast_SpawnImpactFXClass(UseClass, DamageLocation);
 		}
@@ -363,6 +365,9 @@ void ASeattleCharacter::Client_PlayHitEffects_Implementation()
 
 void ASeattleCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
 {
+	//UE_LOG(LogSeattle, Log, TEXT("fx class"));
+
+
     if (!ImpactFXActorClass)
 	{
 		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: ImpactFXActorClass is null on %s"), *GetNameSafe(this));
@@ -385,13 +390,13 @@ void ASeattleCharacter::Multicast_SpawnImpactFX_Implementation(FVector Location)
 	AImpactFXActor* FX = World->SpawnActor<AImpactFXActor>(ImpactFXActorClass, SpawnLocation, FRotator::ZeroRotator, Params);
     if (FX)
 	{
-		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFX: Spawned FX %s at %s (class=%s)"), *GetNameSafe(FX), *SpawnLocation.ToString(), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()));
-		UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [SeattleCharacter] Multicast_SpawnImpactFX spawned FX at %s"), *SpawnLocation.ToString());
+		UE_LOG(LogSeattle, Log, TEXT("Multicast_SpawnImpactFX: Spawned FX class %s at %s (class=%s)"), *GetNameSafe(FX), *SpawnLocation.ToString(), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()));
+		//UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [SeattleCharacter] Multicast_SpawnImpactFX spawned FX at %s"), *SpawnLocation.ToString());
 	}
 	else
 	{
 		UE_LOG(LogSeattle, Warning, TEXT("Multicast_SpawnImpactFX: Failed to spawn FX class %s at %s"), *GetNameSafe(ImpactFXActorClass->GetDefaultObject()), *SpawnLocation.ToString());
-		UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [SeattleCharacter] Multicast_SpawnImpactFX FAILED at %s"), *SpawnLocation.ToString());
+		//UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [SeattleCharacter] Multicast_SpawnImpactFX FAILED at %s"), *SpawnLocation.ToString());
 	}
 }
 
@@ -534,6 +539,7 @@ void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector Normali
 	// Authority: perform trace and apply damage to any ASeattleAI hit
     UE_LOG(LogSeattle, Log, TEXT("%s Server_PerformMeleeAttack_Implementation: Aim=%s Range=%f Radius=%f Damage=%f"), *GetNameSafe(this), *NormalizedAimDir.ToString(), Range, Radius, Damage);
 
+	UE_LOG(LogSeattle, Log, TEXT("fx class maybe"));
 	// Server-authoritative stamina check: prevent client from performing melee if not enough stamina
 	if (StaminaComponent)
 	{
@@ -557,8 +563,7 @@ void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector Normali
 	bool bHit = GetWorld()->SweepSingleByChannel(Hit, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(Radius), Params);
 
 
-	UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl -1st -1st"));
-
+	UE_LOG(LogSeattle, Log, TEXT("fx class ye ahbest"));
 	if (bHit && Hit.GetActor())
 	{
 		UE_LOG(LogSeattle, Log, TEXT("%s Melee hit actor %s at location %s"), *GetNameSafe(this), *GetNameSafe(Hit.GetActor()), *Hit.ImpactPoint.ToString());
@@ -580,12 +585,11 @@ void ASeattleCharacter::Server_PerformMeleeAttack_Implementation(FVector Normali
 		if (ImpactFXActorClass)
 		{
 
-			UE_LOG(LogSeattle, Log, TEXT("jkljkljkljkl 0th 0th"));
 			Multicast_SpawnImpactFXClass(ImpactFXActorClass, Hit.ImpactPoint);
 		}
 		else
 		{
-			UE_LOG(LogSeattle, Warning, TEXT("Server_PerformMeleeAttack_Implementation: No ImpactFXActorClass set, cannot spawn impact FX for hit at %s"), *Hit.ImpactPoint.ToString());
+			UE_LOG(LogSeattle, Warning, TEXT("Server_PerformMeleeAttack_Implementation: No ImpactFXActorClass set, cannot spawn impact FX class for hit at %s"), *Hit.ImpactPoint.ToString());
 		}
 	}
 	else

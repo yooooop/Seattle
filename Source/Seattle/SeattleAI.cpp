@@ -97,15 +97,20 @@ void ASeattleAI::DoAttackTrace(FName DamageSourceBone)
 
 			if (!HitActor) continue;
 
+
+
 			// Prefer generic combat damageable interface
             if (ICombatDamageable* Damageable = Cast<ICombatDamageable>(HitActor))
 			{
+
                 // Determine a good spawn location for impact FX: prefer the hit component's bone/socket location if available
 				FVector SpawnLoc = Hit.ImpactPoint;
 				if (Hit.BoneName != NAME_None && Hit.Component.IsValid())
 				{
+
 					if (USkeletalMeshComponent* TargetSkel = Cast<USkeletalMeshComponent>(Hit.Component.Get()))
 					{
+
 						// GetSocketLocation will return bone location for skeletal mesh components as well
 						SpawnLoc = TargetSkel->GetSocketLocation(Hit.BoneName);
 					}
@@ -172,6 +177,9 @@ void ASeattleAI::BeginPlay()
 	{
 		Health = MaxHealth;
 	}
+
+	// initialize retreat gating health to current health so retreat can trigger when health drops
+	LastRetreatHealth = Health;
 
 	if (StaminaComponent)
 	{

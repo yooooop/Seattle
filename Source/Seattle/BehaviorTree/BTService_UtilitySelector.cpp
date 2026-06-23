@@ -1,4 +1,4 @@
-#include "BTService_UtilitySelector.h"
+﻿#include "BTService_UtilitySelector.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "AIController.h"
@@ -15,7 +15,7 @@ void UBTService_UtilitySelector::OnBecomeRelevant(UBehaviorTreeComponent& OwnerC
 {
     Super::OnBecomeRelevant(OwnerComp, NodeMemory);
 
-    if (UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent())
+    if (UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent()) 
     {
         TargetActorKey = BB->GetKeyID(FName("TargetActor"));
         DistanceKey = BB->GetKeyID(FName("DistanceToTarget"));
@@ -58,18 +58,8 @@ void UBTService_UtilitySelector::TickNode(UBehaviorTreeComponent& OwnerComp, uin
 
 void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerComp)
 {
-
-    UE_LOG(LogTemp, Warning, TEXT("asdfjkl no way right"));
-
     UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
     if (!BB) return;
-
-    // Only evaluate when not currently acting and when target exists
-    bool bCanAct = BB->GetValueAsBool(FName("CanAct"));
-    if (bCanAct) return;
-
-    AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
-    if (!Target) return;
 
     AAIController* AICon = OwnerComp.GetAIOwner();
     if (!AICon) return;
@@ -77,156 +67,186 @@ void UBTService_UtilitySelector::EvaluateActions(UBehaviorTreeComponent& OwnerCo
     APawn* Pawn = AICon->GetPawn();
     if (!Pawn) return;
 
-    UE_LOG(LogTemp, Warning, TEXT("asdfjkl no way right2"));
-
     ASeattleAI* AI = Cast<ASeattleAI>(Pawn);
+    if (!AI) return;
 
-    if (AI)
-    {
-        if (AI->Health < AI->LastRecordedHealth)
-        {
-            AI->LastRecordedHealth = AI->Health;
-            AI->bRetreatedThisHealthLoss = false;
-        }
-    }
+    AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
+    if (!Target) return;
 
-    // Gather context
-    float Distance = BB->GetValueAsFloat(FName("DistanceToTarget"));
-    if (AI && Target)
-    {
-        Distance = FVector::Dist(Target->GetActorLocation(), AI->GetActorLocation());
-        BB->SetValueAsFloat(FName("DistanceToTarget"), Distance);
-    }
+    const bool bCanAct = BB->GetValueAsBool(FName("CanAct"));
+    if (bCanAct) return;
 
-    // If we've successfully backed away enough, resume normal combat spacing.
-    if (AI &&
-        AI->DesiredCombatDistance > AI->MeleeRange &&
-        Distance >= AI->DesiredCombatDistance - 20.f)
-    {
-        AI->DesiredCombatDistance = AI->MeleeRange;
-    }
+    const float Distance = FVector::Dist(Target->GetActorLocation(), AI->GetActorLocation());
+    BB->SetValueAsFloat(FName("DistanceToTarget"), Distance);
 
-    bool bPlayerAttacking = BB->GetValueAsBool(FName("PlayerIsAttacking"));
-    int32 CurrentStamina = BB->GetValueAsInt(FName("CurrentStamina"));
+    const float MeleeRange = AI->MeleeRange;
+    const float AttackBuffer = AI->AttackBuffer;
 
-    // If keep-distance mode active, enforce it: slide back when too close, clear mode when desired distance reached
-    /*if (AI && AI->bKeepDistanceActive && !AI->bKeepDistanceConsumed)
-    {
-        const float Keep = AI->KeepDistanceRadius;
-        const float Tolerance = 10.f;
-        if (Distance < Keep - Tolerance)
-        {
-            // too close -> slide back
-            BB->SetValueAsInt(FName("BestAction"), (int32)ECombatAction::SlideBack);
-            BB->SetValueAsBool(FName("CanAct"), true);
-            return;
-        }
-        else if (Distance >= Keep)
-        {
-            // reached or exceeded desired distance: disable keep-distance and resume normal behavior
-            AI->bKeepDistanceActive = false;
-            // fallthrough to normal behavior
-        }
-        else
-        {
-            // within tolerance: do nothing
-            return;
-        }
-    }*/
-
-    UE_LOG(LogTemp, Warning, TEXT("asdfjkl no way right3"));
-
-    // Simplified rules: only MoveTo or attacks (Jab/Hook). Do not consider player attacking or slides.
-    float MeleeRange = AI ? AI->MeleeRange : 100.f;
-    float AttackBuffer = AI ? AI->AttackBuffer : 30.f;
-
-    const float DesiredDistance =
-        AI ? AI->DesiredCombatDistance : MeleeRange;
-
+    const float DesiredDistance = AI->DesiredCombatDistance;
     const float DistanceTolerance = 30.f;
+
+    const float AIHealth = AI->MaxHealth > 0.f ? AI->Health / AI->MaxHealth : 0.f;
+
+    float PlayerHealth = 1.f;
+    if (ASeattleCharacter* Player = Cast<ASeattleCharacter>(Target))
+    {
+        PlayerHealth = Player->MaxHealth > 0.f ? Player->Health / Player->MaxHealth : 1.f;
+    }
+
+    const bool bLowStamina = BB->GetValueAsInt(FName("CurrentStamina")) < 1;
+
+    if (bLowStamina)
+    {
+        BB->SetValueAsInt(FName("BestAction"), (int32)ECombatAction::Idle);
+        BB->SetValueAsBool(FName("CanAct"), true);
+        return;
+    }
+
+    float BestScore = -FLT_MAX;
+    ECombatAction BestAction = ECombatAction::Idle;
+
+    auto ApplyNoise = []()
+        {
+            return FMath::FRandRange(0.f, 10.f);
+        };
+
+    auto AddRepeatPenalty = [&](ECombatAction Action, float Score)
+        {
+            if (AI->LastActionPerformed == Action)
+            {
+                Score -= 20.f;
+            }
+            return Score;
+        };
+
+    // =========================
+    // MOVE TO
+    // =========================
+    float MoveScore = 0.f;
 
     if (Distance > DesiredDistance + DistanceTolerance)
     {
-        BB->SetValueAsInt(FName("BestAction"),
-            (int32)ECombatAction::MoveTo);
-
-        BB->SetValueAsBool(FName("CanAct"), true);
-        return;
+        MoveScore += 200.f;
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("asdfjkl no way right4"));
+    // discourage chasing when low health
+    MoveScore *= (0.5f + AIHealth);
 
-    // If in range but no stamina, do nothing (keep CanAct=false). Never set Idle as BestAction.
-    if (CurrentStamina < 1)
+    MoveScore += ApplyNoise();
+    MoveScore = AddRepeatPenalty(ECombatAction::MoveTo, MoveScore);
+
+    if (MoveScore > BestScore)
     {
-        return;
+        BestScore = MoveScore;
+        BestAction = ECombatAction::MoveTo;
     }
 
+    // =========================
+    // JAB
+    // =========================
+    float JabScore = 0.f;
 
-    UE_LOG(LogTemp, Warning, TEXT("asdfjkl AI Health %.1f"), AI->Health);
-    // Low-health defensive behavior: prefer sliding back with configurable chance
-    if (AI &&
-        AI->Health < LowHealthThreshold &&
-        !AI->bRetreatedThisHealthLoss)
+    if (Distance <= MeleeRange + AttackBuffer)
     {
-        AI->bRetreatedThisHealthLoss = true;
-
-        AI->DesiredCombatDistance = AI->MeleeRange + 300.f;
-
-        BB->SetValueAsInt(FName("BestAction"),
-            (int32)ECombatAction::SlideBack);
-
-        BB->SetValueAsBool(FName("CanAct"), true);
-        return;
+        JabScore += 80.f;
     }
 
-    // If player is attacking, 50% chance to slide (if stamina) vs 50% to attack
-    if (bPlayerAttacking && CurrentStamina >= MinStaminaToSlide)
+    JabScore += (AIHealth > PlayerHealth) ? 40.f : 10.f;
+
+    JabScore += ApplyNoise();
+    JabScore = AddRepeatPenalty(ECombatAction::Jab, JabScore);
+
+    if (JabScore > BestScore)
     {
-        const float R = FMath::FRand();
-        if (R < 0.5f)
-        {
-            // choose a slide direction randomly
-            const float R2 = FMath::FRand();
-            ECombatAction SlideChoice = (R2 < 0.33f) ? ECombatAction::SlideLeft : (R2 < 0.66f) ? ECombatAction::SlideRight : ECombatAction::SlideBack;
-            // avoid repeating slide category
-            if (AI && (AI->LastActionPerformed == ECombatAction::SlideLeft || AI->LastActionPerformed == ECombatAction::SlideRight || AI->LastActionPerformed == ECombatAction::SlideBack || AI->LastActionPerformed == ECombatAction::SlideForward))
-            {
-                // fallback to attack
-            }
-            else
-            {
-                BB->SetValueAsInt(FName("BestAction"), (int32)SlideChoice);
-                BB->SetValueAsBool(FName("CanAct"), true);
-                return;
-            }
-        }
-        // else fallthrough to attack selection
+        BestScore = JabScore;
+        BestAction = ECombatAction::Jab;
     }
 
-    // In range and has stamina -> choose Jab or Hook, respecting cooldowns and avoiding repeats
-    float Now = OwnerComp.GetWorld() ? OwnerComp.GetWorld()->GetTimeSeconds() : 0.f;
-    bool bJabOnCooldown = AI && ((Now - AI->LastJabTime) < JabCooldown);
-    bool bHookOnCooldown = AI && ((Now - AI->LastHookTime) < HookCooldown);
+    // =========================
+    // HOOK
+    // =========================
+    float HookScore = 0.f;
 
-    ECombatAction Chosen = ECombatAction::Jab;
-    if (bJabOnCooldown && !bHookOnCooldown) Chosen = ECombatAction::Hook;
-    else if (!bJabOnCooldown && bHookOnCooldown) Chosen = ECombatAction::Jab;
-    else if (!bJabOnCooldown && !bHookOnCooldown) Chosen = (FMath::FRand() < 0.5f) ? ECombatAction::Jab : ECombatAction::Hook;
-    else
+    if (Distance <= MeleeRange + AttackBuffer)
     {
-        float JabRem = AI ? FMath::Max(0.f, JabCooldown - (Now - AI->LastJabTime)) : JabCooldown;
-        float HookRem = AI ? FMath::Max(0.f, HookCooldown - (Now - AI->LastHookTime)) : HookCooldown;
-        Chosen = (JabRem <= HookRem) ? ECombatAction::Jab : ECombatAction::Hook;
+        HookScore += 75.f;
     }
 
-    // Avoid repeating the same action type twice in a row
-    if (AI && AI->LastActionPerformed == Chosen)
+    HookScore += (AIHealth > PlayerHealth) ? 35.f : 15.f;
+
+    HookScore += ApplyNoise();
+    HookScore = AddRepeatPenalty(ECombatAction::Hook, HookScore);
+
+    if (HookScore > BestScore)
     {
-        Chosen = (Chosen == ECombatAction::Jab) ? ECombatAction::Hook : ECombatAction::Jab;
+        BestScore = HookScore;
+        BestAction = ECombatAction::Hook;
     }
 
-    BB->SetValueAsInt(FName("BestAction"), (int32)Chosen);
+    // =========================
+    // SLIDES (DEFENSIVE)
+    // =========================
+    float SlideBase = 50.f;
+
+    float SlideLeftScore = SlideBase;
+    float SlideRightScore = SlideBase;
+    float SlideBackScore = SlideBase;
+
+    // If player stronger → increase defensive movement
+    if (PlayerHealth > AIHealth)
+    {
+        SlideLeftScore += 25.f;
+        SlideRightScore += 25.f;
+        SlideBackScore += 35.f;
+    }
+
+    // If AI is stronger → reduce panic movement
+    if (AIHealth > PlayerHealth)
+    {
+        SlideLeftScore -= 20.f;
+        SlideRightScore -= 20.f;
+        SlideBackScore -= 30.f;
+    }
+
+    // low health = more evasive
+    if (AIHealth < 0.3f)
+    {
+        SlideBackScore += 60.f;
+        SlideLeftScore += 25.f;
+        SlideRightScore += 25.f;
+    }
+
+    SlideLeftScore += ApplyNoise();
+    SlideRightScore += ApplyNoise();
+    SlideBackScore += ApplyNoise();
+
+    SlideLeftScore = AddRepeatPenalty(ECombatAction::SlideLeft, SlideLeftScore);
+    SlideRightScore = AddRepeatPenalty(ECombatAction::SlideRight, SlideRightScore);
+    SlideBackScore = AddRepeatPenalty(ECombatAction::SlideBack, SlideBackScore);
+
+    if (SlideLeftScore > BestScore)
+    {
+        BestScore = SlideLeftScore;
+        BestAction = ECombatAction::SlideLeft;
+    }
+
+    if (SlideRightScore > BestScore)
+    {
+        BestScore = SlideRightScore;
+        BestAction = ECombatAction::SlideRight;
+    }
+
+    if (SlideBackScore > BestScore)
+    {
+        BestScore = SlideBackScore;
+        BestAction = ECombatAction::SlideBack;
+    }
+
+    // =========================
+    // FINAL WRITE
+    // =========================
+    BB->SetValueAsInt(FName("BestAction"), (int32)BestAction);
     BB->SetValueAsBool(FName("CanAct"), true);
-    return;
+
+    AI->LastActionPerformed = BestAction;
 }
