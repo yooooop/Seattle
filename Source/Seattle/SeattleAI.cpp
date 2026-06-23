@@ -297,6 +297,9 @@ void ASeattleAI::ApplyHealthChange(float Change)
 	const float PreviousHealth = Health;
 	Health = FMath::Clamp(Health - Change, 0.f, MaxHealth);
 
+	// reset keep-distance consumption so AI may perform keep-distance again after health changes
+	//bKeepDistanceConsumed = false;
+
 	OnHealthChanged.Broadcast(Health, PreviousHealth - Health);
 
 	if (GEngine)

@@ -16,7 +16,7 @@ UBTTask_ExecuteBestAction::UBTTask_ExecuteBestAction()
 
 EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
 {
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI testinghere this meant execute task actually ran"));
+    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI stestinghere this meant execute task actually ran"));
 
     UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
     if (!BB)
@@ -48,11 +48,15 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
     // Log raw read and verify key id
     const int32 BestKeyId = BB->GetKeyID(FName("BestAction"));
 
-    // mark acting (set both Bool and Int forms for editor compatibility)
-    bool PrevBool = BB->GetValueAsBool(FName("IsActing"));
-    int32 PrevInt = BB->GetValueAsInt(FName("IsActingInt"));
-    BB->SetValueAsBool(FName("IsActing"), true);
-    BB->SetValueAsInt(FName("IsActingInt"), 1);
+    // mark acting lock (set CanAct = false to indicate we're now executing)
+    BB->SetValueAsBool(FName("CanAct"), false);
+    // mark AI as performing an action so selector can skip polling
+
+    if (BestAction != ECombatAction::MoveTo && BestAction != ECombatAction::None && BestAction != ECombatAction::Idle)
+    {
+        AI->bIsPerformingAction = true;
+    }
+    
 
 
     // Execute
@@ -70,7 +74,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         {
             // Validate distance before attacking
             float Dist = BB->GetValueAsFloat(FName("DistanceToTarget"));
-            if (Dist > AI->MeleeRange)
+            if (Dist - 20.f > AI->MeleeRange)
             {
                 // fallback to MoveTo
                 AActor* TargetActor = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
@@ -78,7 +82,6 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                 {
                     // Compute acceptance derived from AI melee range and buffer so we stop slightly inside melee range
                     const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer);
-                    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo accepted. AcceptanceRadius=%.1f (MeleeRange=%.1f AttackBuffer=%.1f)"), Acceptance, AI->MeleeRange, AI->AttackBuffer);
                     EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(TargetActor, Acceptance);
                     if (MoveResult == EPathFollowingRequestResult::RequestSuccessful || MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
                     {
@@ -88,15 +91,19 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                         {
                             FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &UBTTask_ExecuteBestAction::OnMovePoll, &OwnerComp, NodeMemory);
                             World->GetTimerManager().SetTimer(Memory->TimerHandle, Delegate, 0.05f, true);
+                            // initialize movement safety net
+                            if (TargetActor && AI)
+                            {
+                                Memory->LastDistance = FVector::Dist(TargetActor->GetActorLocation(), AI->GetActorLocation());
+                                Memory->StalePollCount = 0;
+                            }
                             return EBTNodeResult::InProgress;
                         }
                     }
                     else
                     {
-
-                        BB->SetValueAsBool(FName("IsActing"), false);
-                        BB->SetValueAsInt(FName("IsActingInt"), 0);
-                        if (AICon->BrainComponent) AICon->BrainComponent->RestartLogic();
+                        // move request failed -> clear CanAct and fail
+                        BB->SetValueAsBool(FName("CanAct"), false);
                         return EBTNodeResult::Failed;
                     }
                 }
@@ -115,6 +122,27 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         }
         break;
     }
+
+    case ECombatAction::KeepDistance:
+    {
+        // special keep-distance action: perform a slide-back and enable keep-distance mode on AI
+        /*UE_LOG(LogTemp, Warning, TEXT("asdfjkl slide should not actually perform?"));
+        AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
+        FVector Dir = AI->GetActorForwardVector();
+        if (Target)
+        {
+            FVector ToTarget = (Target->GetActorLocation() - AI->GetActorLocation()).GetSafeNormal();
+            Dir = -ToTarget;
+        }
+        AI->DoAISlide(Dir);
+        AI->RecordAction(ECombatAction::SlideBack);
+        // mark keep-distance consumed so we only do this once until health changes
+        AI->bKeepDistanceConsumed = true;
+        AI->bKeepDistanceActive = false;
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI KeepDistance initiated; LastAction=SlideBack"));
+        ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
+        break;*/
+    }
     case ECombatAction::Hook:
     {
         const bool bRight = FMath::FRand() > 0.5f;
@@ -124,7 +152,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         {
             // Validate distance before attacking
             float Dist = BB->GetValueAsFloat(FName("DistanceToTarget"));
-            if (Dist > AI->MeleeRange)
+            if (Dist - 20.f > AI->MeleeRange)
             {
                 AActor* TargetActor = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
                 if (TargetActor)
@@ -140,6 +168,12 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                         {
                             FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &UBTTask_ExecuteBestAction::OnMovePoll, &OwnerComp, NodeMemory);
                             World->GetTimerManager().SetTimer(Memory->TimerHandle, Delegate, 0.05f, true);
+                            // initialize movement safety net
+                            if (TargetActor && AI)
+                            {
+                                Memory->LastDistance = FVector::Dist(TargetActor->GetActorLocation(), AI->GetActorLocation());
+                                Memory->StalePollCount = 0;
+                            }
                             return EBTNodeResult::InProgress;
                         }
                     }
@@ -171,42 +205,52 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         break;
     }
     case ECombatAction::SlideLeft:
-    case ECombatAction::SlideRight:
-    case ECombatAction::SlideBack:
-    case ECombatAction::SlideForward:
     {
-        // compute direction relative to player
         AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
         FVector Dir = AI->GetActorForwardVector();
         if (Target)
         {
             FVector ToTarget = (Target->GetActorLocation() - AI->GetActorLocation()).GetSafeNormal();
-            // lateral vector
             FVector Right = FVector::CrossProduct(FVector::UpVector, ToTarget).GetSafeNormal();
-            if (BestAction == ECombatAction::SlideLeft)
-            {
-                Dir = -Right;
-            }
-            else if (BestAction == ECombatAction::SlideRight)
-            {
-                Dir = Right;
-            }
-            else if (BestAction == ECombatAction::SlideBack)
-            {
-                Dir = -ToTarget;
-            }
-            else // forward
-            {
-                Dir = ToTarget;
-            }
+            Dir = -Right;
         }
         AI->DoAISlide(Dir);
-        // record slide action
-        if (BestAction == ECombatAction::SlideLeft) AI->RecordAction(ECombatAction::SlideLeft);
-        else if (BestAction == ECombatAction::SlideRight) AI->RecordAction(ECombatAction::SlideRight);
-        else if (BestAction == ECombatAction::SlideBack) AI->RecordAction(ECombatAction::SlideBack);
-        else AI->RecordAction(ECombatAction::SlideForward);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=%s"), *StaticEnum<ECombatAction>()->GetNameStringByValue((int64)BestAction));
+        AI->RecordAction(ECombatAction::SlideLeft);
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideLeft"));
+        ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
+        break;
+    }
+
+    case ECombatAction::SlideRight:
+    {
+        AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
+        FVector Dir = AI->GetActorForwardVector();
+        if (Target)
+        {
+            FVector ToTarget = (Target->GetActorLocation() - AI->GetActorLocation()).GetSafeNormal();
+            FVector Right = FVector::CrossProduct(FVector::UpVector, ToTarget).GetSafeNormal();
+            Dir = Right;
+        }
+        AI->DoAISlide(Dir);
+        AI->RecordAction(ECombatAction::SlideRight);
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideRight"));
+        ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
+        break;
+    }
+
+    case ECombatAction::SlideBack:
+    {
+        UE_LOG(LogTemp, Warning, TEXT("asdfjkl trying to slide back"));
+        AActor* Target = Cast<AActor>(BB->GetValueAsObject(FName("TargetActor")));
+        FVector Dir = AI->GetActorForwardVector();
+        if (Target)
+        {
+            FVector ToTarget = (Target->GetActorLocation() - AI->GetActorLocation()).GetSafeNormal();
+            Dir = -ToTarget;
+        }
+        AI->DoAISlide(Dir);
+        AI->RecordAction(ECombatAction::SlideBack);
+        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI LastAction=SlideBack"));
         ActionDuration = AI->SlideDuration > 0.f ? AI->SlideDuration : DefaultSlideDuration;
         break;
     }
@@ -226,8 +270,12 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
                 UWorld* World = OwnerComp.GetWorld();
                     if (World)
                     {
+                        float Distance = BB->GetValueAsFloat(FName("DistanceToTarget"));
                         FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &UBTTask_ExecuteBestAction::OnMovePoll, &OwnerComp, NodeMemory);
                         World->GetTimerManager().SetTimer(Memory->TimerHandle, Delegate, 0.05f, true);
+                        // initialize movement safety net
+                        Memory->LastDistance = Distance;
+                        Memory->StalePollCount = 0;
                         return EBTNodeResult::InProgress;
                     }
             }
@@ -251,6 +299,7 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
     }
     case ECombatAction::Idle:
     default:
+		UE_LOG(LogTemp, Warning, TEXT("stestinghere HUH?"));
         // do nothing
         break;
     }
@@ -268,13 +317,8 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::ExecuteTask(UBehaviorTreeComponen
         }
     }
 
-    // not waiting: clear IsActing immediately and succeed (clear both Bool and Int forms)
-    {
-        bool PrevB = BB->GetValueAsBool(FName("IsActing"));
-        int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
-        BB->SetValueAsBool(FName("IsActing"), false);
-        BB->SetValueAsInt(FName("IsActingInt"), 0);
-    }
+    // not waiting: clear CanAct and succeed
+    BB->SetValueAsBool(FName("CanAct"), false);
     return EBTNodeResult::Succeeded;
 }
 
@@ -290,10 +334,21 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::AbortTask(UBehaviorTreeComponent&
 
     if (UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent())
     {
-        bool PrevB = BB->GetValueAsBool(FName("IsActing"));
-        int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
-        BB->SetValueAsBool(FName("IsActing"), false);
-        BB->SetValueAsInt(FName("IsActingInt"), 0);
+        BB->SetValueAsBool(FName("CanAct"), false);
+    }
+
+    // clear performing flag on AI so selector can resume
+    AAIController* AICon = OwnerComp.GetAIOwner();
+    if (AICon)
+    {
+        APawn* Pawn = AICon->GetPawn();
+        if (Pawn)
+        {
+            if (ASeattleAI* AI = Cast<ASeattleAI>(Pawn))
+            {
+                AI->bIsPerformingAction = false;
+            }
+        }
     }
     return EBTNodeResult::Aborted;
 }
@@ -301,18 +356,15 @@ EBTNodeResult::Type UBTTask_ExecuteBestAction::AbortTask(UBehaviorTreeComponent&
 void UBTTask_ExecuteBestAction::OnActionTimerExpired(UBehaviorTreeComponent* OwnerComp, uint8* NodeMemory)
 {
 
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI ONACTION TIMER EXPIRED"));
+  //  UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI ONACTION TIMER EXPIRED"));
     if (!OwnerComp) return;
     if (UBlackboardComponent* BB = OwnerComp->GetBlackboardComponent())
     {
-        bool PrevB = BB->GetValueAsBool(FName("IsActing"));
-        int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
-        BB->SetValueAsBool(FName("IsActing"), false);
-        BB->SetValueAsInt(FName("IsActingInt"), 0);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Action Complete. IsActing previous: Bool=%d Int=%d -> new Bool=0 Int=0"), PrevB ? 1 : 0, PrevI);
+        BB->SetValueAsBool(FName("CanAct"), false);
+   //     UE_LOG(LogTemp, Verbose, TEXT("[ExecuteBestAction] Action Complete - CanAct cleared"));
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Action Complete"));
+  //  UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [ExecuteBestAction] Action Complete"));
     FinishLatentTask(*OwnerComp, EBTNodeResult::Succeeded);
 }
 
@@ -330,6 +382,7 @@ void UBTTask_ExecuteBestAction::OnMovePoll(UBehaviorTreeComponent* OwnerComp, ui
 
     ASeattleAI* AI = Cast<ASeattleAI>(Pawn);
     if (!AI) return;
+    //UE_LOG(LogTemp, Log, TEXT("stestinghere move poll keeps running"));
 
     // Prefer direct distance calculation to avoid blackboard lag
     float Distance = 0.f;
@@ -338,34 +391,73 @@ void UBTTask_ExecuteBestAction::OnMovePoll(UBehaviorTreeComponent* OwnerComp, ui
     {
         Distance = FVector::Dist(Target->GetActorLocation(), AI->GetActorLocation());
     }
-    if (Distance <= AI->MeleeRange)
+
+    FExecActionMemory* Memory = (FExecActionMemory*)NodeMemory;
+
+    // Movement completion check
+    if (Distance - 20.f <= AI->MeleeRange) // 10.f subtracted here as leeway to account for animations and offsets, etc.
     {
         // arrived within attack range
-        FExecActionMemory* Memory = (FExecActionMemory*)NodeMemory;
         if (OwnerComp->GetWorld())
         {
             OwnerComp->GetWorld()->GetTimerManager().ClearTimer(Memory->TimerHandle);
         }
 
-        // clear IsActing so selector can run immediately
-        bool PrevB = BB->GetValueAsBool(FName("IsActing"));
-        int32 PrevI = BB->GetValueAsInt(FName("IsActingInt"));
-        BB->SetValueAsBool(FName("IsActing"), false);
-        BB->SetValueAsInt(FName("IsActingInt"), 0);
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo finished. DistanceToTarget=%.1f MeleeRange=%.1f"), Distance, AI->MeleeRange);
-
-        // trigger immediate BT reevaluation
-            if (AICon->BrainComponent)
-            {
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI AI entered combat range: AI=%s"), *GetNameSafe(AI));
-                AICon->BrainComponent->RestartLogic();
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI MoveTo completed - triggered immediate utility reevaluation via BrainComponent->RestartLogic()"));
-            }
-
+        // arrived: clear CanAct so selector runs on next tick and finish
+        BB->SetValueAsBool(FName("CanAct"), false);
+       // UE_LOG(LogTemp, Verbose, TEXT("[ExecuteBestAction] MoveTo arrived - CanAct cleared"));
         FinishLatentTask(*OwnerComp, EBTNodeResult::Succeeded);
+        return;
     }
-    else
+
+    // Safety net: detect if distance is not decreasing across polls
+    const int32 StaleThreshold = 3; // number of polls without progress before reissuing MoveTo
+    if (Memory->LastDistance == FLT_MAX)
     {
-        // still moving; nothing to do (poll will continue)
+        // first poll: record distance
+        Memory->LastDistance = Distance;
+        Memory->StalePollCount = 0;
+        return;
+    }
+
+    // Consider movement progressed if distance decreased by any small amount
+    if (Distance < Memory->LastDistance - KINDA_SMALL_NUMBER)
+    {
+        Memory->LastDistance = Distance;
+        Memory->StalePollCount = 0;
+        return;
+    }
+
+    // no progress this poll
+    Memory->StalePollCount++;
+
+    if (Memory->StalePollCount >= StaleThreshold)
+    {
+        // attempt to reissue MoveTo to recover from stuck state
+        if (Target)
+        {
+            const float Acceptance = FMath::Max(3.f, AI->MeleeRange - AI->AttackBuffer);
+            EPathFollowingRequestResult::Type MoveResult = AICon->MoveToActor(Target, Acceptance);
+           // UE_LOG(LogTemp, Warning, TEXT("[ExecuteBestAction] Reissuing MoveTo due to stalled polls (count=%d) MoveResult=%d"), Memory->StalePollCount, (int)MoveResult);
+            // reset counters if we successfully reissued
+            if (MoveResult == EPathFollowingRequestResult::RequestSuccessful || MoveResult == EPathFollowingRequestResult::AlreadyAtGoal)
+            {
+                Memory->LastDistance = Distance;
+                Memory->StalePollCount = 0;
+                return;
+            }
+            else
+            {
+                // reissue failed: give up, clear timer and allow selector to pick another action
+                if (OwnerComp->GetWorld())
+                {
+                    OwnerComp->GetWorld()->GetTimerManager().ClearTimer(Memory->TimerHandle);
+                }
+                BB->SetValueAsBool(FName("CanAct"), false);
+               // UE_LOG(LogTemp, Warning, TEXT("[ExecuteBestAction] Reissue MoveTo failed; clearing CanAct to allow re-evaluation"));
+                FinishLatentTask(*OwnerComp, EBTNodeResult::Succeeded);
+                return;
+            }
+        }
     }
 }

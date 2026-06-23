@@ -8,6 +8,10 @@
 struct FExecActionMemory
 {
     FTimerHandle TimerHandle;
+    // Last polled distance to target (used to detect stalled movement)
+    float LastDistance = FLT_MAX;
+    // Number of consecutive polls where distance did not decrease
+    int32 StalePollCount = 0;
 };
 
 UCLASS(DisplayName = "Execute Best Action Task")

@@ -220,6 +220,28 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Combat")
 	ECombatAction LastActionPerformed = ECombatAction::None;
 
+	/** True while the AI is actively executing an action (montage/slide/move). Prevents selector polling. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "AI|Combat")
+	bool bIsPerformingAction = false;
+
+	/** When set the AI will try to keep this distance (cm) from its current target by sliding back when too close. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "AI|Behavior")
+	float KeepDistanceRadius = 600.f;
+	/** Last health value used to gate the one-time retreat event. Only trigger retreat again if health drops below this value. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "AI|Combat")
+	float LastRetreatHealth = FLT_MAX;
+
+	// Desired combat spacing
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float DesiredCombatDistance = 100.f;
+
+	// Used so retreat only happens once per health loss
+	UPROPERTY(VisibleAnywhere)
+	float LastRecordedHealth = 200.f;
+
+	UPROPERTY(VisibleAnywhere)
+	bool bRetreatedThisHealthLoss = false;
+
 	/** Recent action history to avoid repeating patterns (most recent at index 0) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "AI|Combat")
 	TArray<ECombatAction> RecentActions;

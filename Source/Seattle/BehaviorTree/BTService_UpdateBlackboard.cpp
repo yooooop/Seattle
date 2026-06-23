@@ -110,11 +110,6 @@ void UBTService_UpdateBlackboard::TickNode(UBehaviorTreeComponent& OwnerComp, ui
     BB->SetValueAsInt(FName("CurrentStamina"), StaminaInt);
     BB->SetValueAsBool(FName("HasStamina"), bHasStamina);
 
-    // Final tick log
-    // Final tick: record IsActing timestamp to detect stale acting states
-    bool bIsActing = BB->GetValueAsBool(FName("IsActing"));
-    int32 IsActingInt = BB->GetValueAsInt(FName("IsActingInt"));
-
     // Detect entering attack range (first frame crossing into melee range) using AI's melee range
     float MeleeRange = 0.f;
     if (AI)
@@ -124,42 +119,8 @@ void UBTService_UpdateBlackboard::TickNode(UBehaviorTreeComponent& OwnerComp, ui
     bool bNowInRange = (Distance <= MeleeRange);
     if (!bPreviouslyInAttackRange && bNowInRange)
     {
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI [UpdateBlackboard] AI=%s ENTERED AttackRange (Distance=%.1f MeleeRange=%.1f)"), *GetNameSafe(AI), Distance, MeleeRange);
+        UE_LOG(LogTemp, Verbose, TEXT("[UpdateBlackboard] AI=%s ENTERED AttackRange (Distance=%.1f MeleeRange=%.1f)"), *GetNameSafe(AI), Distance, MeleeRange);
     }
     bPreviouslyInAttackRange = bNowInRange;
     PreviousDistance = Distance;
-
-    // Auto-clear stale IsActing flags if they persist longer than ActingStaleTimeout (only on authority)
-    if (Pawn && Pawn->HasAuthority())
-    {
-        UWorld* World = OwnerComp.GetWorld();
-
-        UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI PAWN AND PAWN AUTHORITY"));
-        if (World)
-        {
-            const float Now = World->GetTimeSeconds();
-            if (bIsActing)
-            {
-                if (LastIsActingSeenTime < 0.f)
-                {
-                    LastIsActingSeenTime = Now;
-                }
-            }
-            else
-            {
-                LastIsActingSeenTime = -1.f;
-            }
-
-            UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI NOT HERE EVEN? LIAST=%.1f, AST=%.1f"), LastIsActingSeenTime, ActingStaleTimeout);
-            if (LastIsActingSeenTime > 0.f && (Now - LastIsActingSeenTime) > ActingStaleTimeout)
-            {
-                // Clear stale flags so selector can re-evaluate
-                BB->SetValueAsBool(FName("IsActing"), false);
-                BB->SetValueAsInt(FName("IsActingInt"), 0);
-                UE_LOG(LogTemp, Warning, TEXT("TESTINGAIAI SURELY THIS RUNS MAN"));
-
-                LastIsActingSeenTime = -1.f;
-            }
-        }
-    }
 }

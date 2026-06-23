@@ -1218,6 +1218,24 @@ void ASeattleCharacter::Server_PlayAttackMontage_Implementation(UAnimMontage* Mo
 
 		// Server initiates the multicast so everyone (including server) plays the montage
 		Multicast_PlayAttackMontage(Montage, PlayRate);
+
+		// On server, schedule clearing of ActiveAttackType after the montage duration so clients/AI know attack finished
+		if (HasAuthority())
+		{
+			UWorld* World = GetWorld();
+			if (World)
+			{
+				// compute duration from montage length and requested play rate
+				const float Duration = Montage->GetPlayLength() / FMath::Max(PlayRate, 0.0001f);
+				// clear any existing timer
+				if (AttackClearTimerHandle.IsValid())
+				{
+					World->GetTimerManager().ClearTimer(AttackClearTimerHandle);
+				}
+				FTimerDelegate Delegate = FTimerDelegate::CreateUObject(this, &ASeattleCharacter::SetActiveAttackType, ESeattleAttackType::None);
+				World->GetTimerManager().SetTimer(AttackClearTimerHandle, Delegate, Duration, false);
+			}
+		}
 	}
 }
 
@@ -1245,6 +1263,8 @@ void ASeattleCharacter::Multicast_PlayAttackMontage_Implementation(UAnimMontage*
 		return;
 	}
 
+    // Mark attacking locally when montage starts so AI sees the player as attacking immediately
+	bIsAttacking = true;
 	const float PlayResult = AnimInst->Montage_Play(Montage, PlayRate);
 	UE_LOG(LogSeattle, Log, TEXT("[%s] Multicast_PlayAttackMontage_Implementation: Montage_Play called, return %f"), *GetNameSafe(this), PlayResult);
 }

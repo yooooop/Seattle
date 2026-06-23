@@ -12,6 +12,7 @@ enum class ECombatAction : uint8
     SlideLeft UMETA(DisplayName = "SlideLeft"),
     SlideRight UMETA(DisplayName = "SlideRight"),
     SlideBack UMETA(DisplayName = "SlideBack"),
+    KeepDistance UMETA(DisplayName = "KeepDistance"),
     SlideForward UMETA(DisplayName = "SlideForward"),
     MoveTo UMETA(DisplayName = "MoveTo"),
     Idle UMETA(DisplayName = "Idle")

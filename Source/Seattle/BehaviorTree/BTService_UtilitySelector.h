@@ -102,6 +102,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Utility|Scoring")
     int32 MinStaminaToSlide = 2;
 
+    /** When AI health is low (< LowHealthThreshold) prefer sliding back with this chance (0..1) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Utility|Aggression")
+    float LowHealthSlideChance = 0.9f;
+
+    /** Threshold health below which AI becomes more defensive (slide back chance applies) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Utility|Aggression")
+    float LowHealthThreshold = 45.f;
+
 protected:
     virtual void OnBecomeRelevant(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
     virtual void TickNode(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds) override;
@@ -113,7 +121,6 @@ protected:
     FBlackboard::FKey DistanceKey;
     FBlackboard::FKey PlayerIsAttackingKey;
     FBlackboard::FKey CurrentStaminaKey;
-    FBlackboard::FKey HasStaminaKey;
     FBlackboard::FKey BestActionKey;
-    FBlackboard::FKey IsActingKey;
+    FBlackboard::FKey CanActKey;
 };

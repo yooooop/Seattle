@@ -235,6 +235,9 @@ public:
 	UFUNCTION(NetMulticast, Reliable)
 	void Multicast_PlayAttackMontage(UAnimMontage* Montage, float PlayRate);
 
+	/** Timer handle used to clear ActiveAttackType after an attack montage finishes (server only) */
+	FTimerHandle AttackClearTimerHandle;
+
 	UPROPERTY(Replicated, BlueprintReadWrite, EditAnywhere, Category = "Animation")
 	float ForwardInput = 0.f;
 
@@ -378,7 +381,7 @@ public:
 
 	/** Melee attack tuning (used by player controller to request server melee) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
-	float MeleeRange = 100.f;
+	float MeleeRange = 120.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Melee")
 	float MeleeRadius = 20.f;
