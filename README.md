@@ -84,27 +84,4 @@ So instead of just following a tree, the AI will calculate scores based on these
 
 ---
 
-## Gameplay Demo
 
-[Insert YouTube Video Here]
-
-Description:
-- Short explanation of what the video shows
-- Highlight key gameplay moments:
-  - split control interaction
-  - combat flow
-  - AI behavior
-  - networking synchronization (if visible)
-
----
-
-## Project Status
-
-This project is an ongoing prototype with continuous development. Current and planned improvements include:
-
-- More types of attacks
-- Improved AI decision-making systems  
-- Networking optimization and replication refinement  
-- Better flow in joining and creating sessions and agmes
-
----
