@@ -19,6 +19,7 @@
 #include "Blueprint/WidgetBlueprintLibrary.h"
 #include "SeattlePlayerController.h"
 #include "SeattleGameMode.h"
+#include "SeattleGameInstance.h"
 
 ASeattleHUD::ASeattleHUD()
 {
@@ -555,6 +556,19 @@ void ASeattleHUD::HideMainMenu()
         // If this is the local player, either request the server to start the match (client) or start locally (listen-server)
         if (PC->IsLocalController())
         {
+            // Use GameInstance session flow: first to press Start will create a session (host), others will find and join
+            if (UGameInstance* GI = GetGameInstance())
+            {
+                // Try to use SeattleGameInstance if available
+                class USeattleGameInstance* SGI = Cast<USeattleGameInstance>(GI);
+                if (SGI)
+                {
+                    SGI->StartOrFindSession(PC);
+                    // hide menu and defer further start logic to session callbacks
+                    return;
+                }
+            }
+
             if (ASeattlePlayerController* SPC = Cast<ASeattlePlayerController>(PC))
             {
                 if (PC->HasAuthority())
