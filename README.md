@@ -73,7 +73,7 @@ The AI is integrated directly into the same combat and movement systems used by 
 
 ---
 
-## Behavior Tree (AI)
+## Behavior Tree (AI) (THE TREE LOOKS SIMPLE BUT ISN'T)
 
 <img width="699" height="933" alt="image" src="https://github.com/user-attachments/assets/f41d68c0-87cf-4ae1-85d3-f2a303968b84" />
 
